@@ -274,101 +274,123 @@ namespace strom
         return newick;
     }
 
-        inline void TreeManip::extractNodeNumberFromName(Node * nd, std::set<unsigned> & used) { 
+    inline void TreeManip::extractNodeNumberFromName(Node *nd, std::set<unsigned> &used)
+    {
         assert(nd);
         bool success = true;
         unsigned x = 0;
-        try {
+        try
+        {
             x = std::stoi(nd->_name);
         }
-        catch(std::invalid_argument &) {
+        catch (std::invalid_argument &)
+        {
             // node name could not be converted to an integer value
             success = false;
         }
 
-        if (success) {
+        if (success)
+        {
             // conversion succeeded
             // attempt to insert x into the set of node numbers already used
             std::pair<std::set<unsigned>::iterator, bool> insert_result = used.insert(x);
-            if (insert_result.second) {
+            if (insert_result.second)
+            {
                 // insertion was made, so x has NOT already been used
                 nd->_number = x - 1;
             }
-            else {
+            else
+            {
                 // insertion was not made, so set already contained x
                 throw XStrom(boost::str(boost::format("leaf number %d used more than once") % x));
             }
         }
         else
             throw XStrom(boost::str(boost::format("node name (%s) not interpretable as a positive integer") % nd->_name));
-    }   
+    }
 
-    inline void TreeManip::extractEdgeLen(Node * nd, std::string edge_length_string) {  
+    inline void TreeManip::extractEdgeLen(Node *nd, std::string edge_length_string)
+    {
         assert(nd);
         bool success = true;
         double d = 0.0;
-        try {
+        try
+        {
             d = std::stod(edge_length_string);
         }
-        catch(std::invalid_argument &) {
+        catch (std::invalid_argument &)
+        {
             // edge_length_string could not be converted to a double value
             success = false;
         }
 
-        if (success) {
+        if (success)
+        {
             // conversion succeeded
             nd->setEdgeLength(d);
         }
         else
             throw XStrom(boost::str(boost::format("%s is not interpretable as an edge length") % edge_length_string));
-    }   
+    }
 
-    inline unsigned TreeManip::countNewickLeaves(const std::string newick) {    
+    inline unsigned TreeManip::countNewickLeaves(const std::string newick)
+    {
         std::regex taxonexpr("[(,]\\s*(\\d+|\\S+?|['].+?['])\\s*(?=[,):])");
-        std::sregex_iterator m1(newick.begin(), newick.end(), taxonexpr);
-        std::sregex_iterator m2;
-        return (unsigned)std::distance(m1, m2);
-    }   
+        // std::sregex_iterator m1(newick.begin(), newick.end(), taxonexpr);
+        // std::sregex_iterator m2;
+        //return (unsigned)std::distance(m1, m2);
+        std::smatch match;
+        return std::regex_match(newick, match, taxonexpr);
+    }
 
-    inline void TreeManip::stripOutNexusComments(std::string & newick) {    
+    inline void TreeManip::stripOutNexusComments(std::string &newick)
+    {
         std::regex commentexpr("\\[.*?\\]");
         newick = std::regex_replace(newick, commentexpr, std::string(""));
-    }   
+    }
 
-    inline Node * TreeManip::findNextPreorder(Node * nd) {  
+    inline Node *TreeManip::findNextPreorder(Node *nd)
+    {
         assert(nd);
-        Node * next = 0;
-        if (!nd->_left_child && !nd->_right_sib) {
+        Node *next = 0;
+        if (!nd->_left_child && !nd->_right_sib)
+        {
             // nd has no children and no siblings, so next preorder is the right sibling of
             // the first ancestral node that has a right sibling.
-            Node * anc = nd->_parent;
+            Node *anc = nd->_parent;
             while (anc && !anc->_right_sib)
                 anc = anc->_parent;
-            if (anc) {
+            if (anc)
+            {
                 // We found an ancestor with a right sibling
                 next = anc->_right_sib;
             }
-            else {
+            else
+            {
                 // nd is last preorder node in the tree
                 next = 0;
             }
         }
-        else if (nd->_right_sib && !nd->_left_child) {
+        else if (nd->_right_sib && !nd->_left_child)
+        {
             // nd has no children (it is a tip), but does have a sibling on its right
             next = nd->_right_sib;
         }
-        else if (nd->_left_child && !nd->_right_sib) {
+        else if (nd->_left_child && !nd->_right_sib)
+        {
             // nd has children (it is an internal node) but no siblings on its right
             next = nd->_left_child;
         }
-        else {
+        else
+        {
             // nd has both children and siblings on its right
             next = nd->_left_child;
         }
         return next;
-    }   
+    }
 
-    inline void TreeManip::refreshPreorder() {  
+    inline void TreeManip::refreshPreorder()
+    {
         // Create vector of node pointers in preorder sequence
         _tree->_preorder.clear();
         _tree->_preorder.reserve(_tree->_nodes.size() - 1); // _preorder does not include root node
@@ -376,24 +398,26 @@ namespace strom
         if (!_tree->_root)
             return;
 
-        Node * first_preorder = _tree->_root->_left_child;
+        Node *first_preorder = _tree->_root->_left_child;
 
         // sanity check: first preorder node should be the only child of the root node
         assert(first_preorder->_right_sib == 0);
 
-        Node * nd = first_preorder;
+        Node *nd = first_preorder;
         _tree->_preorder.push_back(nd);
 
-        while (true) {
+        while (true)
+        {
             nd = findNextPreorder(nd);
             if (nd)
                 _tree->_preorder.push_back(nd);
             else
                 break;
-        }   // end while loop
-    }   
+        } // end while loop
+    }
 
-    inline void TreeManip::refreshLevelorder() {    
+    inline void TreeManip::refreshLevelorder()
+    {
         if (!_tree->_root)
             return;
 
@@ -404,7 +428,7 @@ namespace strom
         _tree->_levelorder.clear();
         _tree->_levelorder.reserve(_tree->_nodes.size() - 1);
 
-        Node * nd = _tree->_root->_left_child;
+        Node *nd = _tree->_root->_left_child;
 
         // sanity check: first node should be the only child of the root node
         assert(nd->_right_sib == 0);
@@ -412,57 +436,67 @@ namespace strom
         // Push nd onto back of queue
         q.push(nd);
 
-        while (!q.empty()) {
+        while (!q.empty())
+        {
             // pop nd off front of queue
-            nd = q.front(); q.pop();
+            nd = q.front();
+            q.pop();
 
             // and push it onto the stack
             _tree->_levelorder.push_back(nd);
 
             // add all children of nd to back of queue
-            Node * child = nd->_left_child;
-            if (child) {
+            Node *child = nd->_left_child;
+            if (child)
+            {
                 q.push(child);
                 child = child->_right_sib;
-                while (child) {
+                while (child)
+                {
                     q.push(child);
                     child = child->_right_sib;
                 }
             }
-        }   // end while loop
-    }   
+        } // end while loop
+    }
 
-    inline void TreeManip::renumberInternals() {    
+    inline void TreeManip::renumberInternals()
+    {
         assert(_tree->_preorder.size() > 0);
-        
+
         // Renumber internal nodes in postorder sequence
         unsigned curr_internal = _tree->_nleaves;
-        for (auto nd : boost::adaptors::reverse(_tree->_preorder)) {
-            if (nd->_left_child) {
+        for (auto nd : boost::adaptors::reverse(_tree->_preorder))
+        {
+            if (nd->_left_child)
+            {
                 // nd is an internal node
                 nd->_number = curr_internal++;
             }
         }
-        
+
         // Root node is not included in _tree->_preorder, so if the root node
         // is an internal node we need to number it here
         if (_tree->_is_rooted)
             _tree->_root->_number = curr_internal++;
-            
+
         _tree->_ninternals = curr_internal - _tree->_nleaves;
-            
-        // If the tree has polytomies, then there are Node objects stored in 
+
+        // If the tree has polytomies, then there are Node objects stored in
         // the _tree->_nodes vector that have not yet been numbered. These can
         // be identified because their _number is currently equal to -1.
-        for (auto & nd : _tree->_nodes) {
+        for (auto &nd : _tree->_nodes)
+        {
             if (nd._number == -1)
                 nd._number = curr_internal++;
-        } 
-    }    
+        }
+    }
 
-    inline bool TreeManip::canHaveSibling(Node * nd, bool rooted, bool allow_polytomies) {  
+    inline bool TreeManip::canHaveSibling(Node *nd, bool rooted, bool allow_polytomies)
+    {
         assert(nd);
-        if (!nd->_parent) {
+        if (!nd->_parent)
+        {
             // trying to give root node a sibling
             return false;
         }
@@ -471,17 +505,22 @@ namespace strom
             return true;
 
         bool nd_can_have_sibling = true;
-        if (nd != nd->_parent->_left_child) {
-            if (nd->_parent->_parent) {
+        if (nd != nd->_parent->_left_child)
+        {
+            if (nd->_parent->_parent)
+            {
                 // trying to give a sibling to a sibling of nd, and nd's parent is not the root
                 nd_can_have_sibling = false;
             }
-            else {
-                if (rooted) {
+            else
+            {
+                if (rooted)
+                {
                     // root node has exactly 2 children in rooted trees
                     nd_can_have_sibling = false;
                 }
-                else if (nd != nd->_parent->_left_child->_right_sib) {
+                else if (nd != nd->_parent->_left_child->_right_sib)
+                {
                     // trying to give root node more than 3 children
                     nd_can_have_sibling = false;
                 }
@@ -489,13 +528,16 @@ namespace strom
         }
 
         return nd_can_have_sibling;
-    }   
+    }
 
-    inline void TreeManip::rerootAtNodeNumber(int node_number) {    
+    inline void TreeManip::rerootAtNodeNumber(int node_number)
+    {
         // Locate node having _number equal to node_number
-        Node * nd = 0;
-        for (auto & curr : _tree->_nodes) {
-            if (curr._number == node_number) {
+        Node *nd = 0;
+        for (auto &curr : _tree->_nodes)
+        {
+            if (curr._number == node_number)
+            {
                 nd = &curr;
                 break;
             }
@@ -504,35 +546,42 @@ namespace strom
         if (!nd)
             throw XStrom(boost::str(boost::format("no node found with number equal to %d") % node_number));
 
-        if (nd != _tree->_root) {
+        if (nd != _tree->_root)
+        {
             if (nd->_left_child)
                 throw XStrom(boost::str(boost::format("cannot currently root trees at internal nodes (e.g. node %d)") % nd->_number));
             rerootAtNode(nd);
         }
-    }   
+    }
 
-    inline void TreeManip::rerootAtNode(Node * prospective_root) {  
-        Node * a = prospective_root;
-        Node * b = prospective_root->_parent;
-        Node * c = 0;
-        Node * d = 0;
-        Node * p = 0;
+    inline void TreeManip::rerootAtNode(Node *prospective_root)
+    {
+        Node *a = prospective_root;
+        Node *b = prospective_root->_parent;
+        Node *c = 0;
+        Node *d = 0;
+        Node *p = 0;
         a->_parent = 0;
-        double tmp_edgelen  = 0.0;
+        double tmp_edgelen = 0.0;
         double prev_edgelen = a->getEdgeLength();
 
-        while (b) {
+        while (b)
+        {
             // Prune node a from b
-            if (a == b->_left_child) {
-                if (a->_right_sib) {
+            if (a == b->_left_child)
+            {
+                if (a->_right_sib)
+                {
                     b->_left_child = a->_right_sib;
                     a->_right_sib = 0;
                 }
-                else {
+                else
+                {
                     b->_left_child = 0;
                 }
             }
-            else {
+            else
+            {
                 c = b->_left_child;
                 while (c->_right_sib != a)
                     c = c->_right_sib;
@@ -541,13 +590,15 @@ namespace strom
             }
 
             // Graft node b onto node a (but don't unhook node b from its parent just yet)
-            if (a->_left_child) {
+            if (a->_left_child)
+            {
                 c = a->_left_child;
                 while (c->_right_sib)
                     c = c->_right_sib;
                 c->_right_sib = b;
             }
-            else {
+            else
+            {
                 a->_left_child = b;
             }
 
@@ -566,9 +617,10 @@ namespace strom
         _tree->_root = prospective_root;
         refreshPreorder();
         refreshLevelorder();
-    }   
+    }
 
-        inline void TreeManip::buildFromNewick(const std::string newick, bool rooted, bool allow_polytomies) {  
+    inline void TreeManip::buildFromNewick(const std::string newick, bool rooted, bool allow_polytomies)
+    {
         _tree.reset(new Tree());
         _tree->_is_rooted = rooted;
 
@@ -585,39 +637,42 @@ namespace strom
         _tree->_nleaves = countNewickLeaves(commentless_newick);
         if (_tree->_nleaves < 4)
             throw XStrom("Expecting newick tree description to have at least 4 leaves");
-        unsigned max_nodes = 2*_tree->_nleaves - (rooted ? 0 : 2);
+        unsigned max_nodes = 2 * _tree->_nleaves - (rooted ? 0 : 2);
         _tree->_nodes.resize(max_nodes);
-        for (auto & nd : _tree->_nodes )
+        for (auto &nd : _tree->_nodes)
             nd._number = -1;
 
-        try {
+        try
+        {
             // Root node
-            Node * nd = &_tree->_nodes[curr_node_index];
+            Node *nd = &_tree->_nodes[curr_node_index];
             _tree->_root = nd;
 
-            if (_tree->_is_rooted) {
+            if (_tree->_is_rooted)
+            {
                 nd = &_tree->_nodes[++curr_node_index];
                 nd->_parent = &_tree->_nodes[curr_node_index - 1];
                 nd->_parent->_left_child = nd;
             }
 
             // Some flags to keep track of what we did last
-            enum {
-                Prev_Tok_LParen		= 0x01,	// previous token was a left parenthesis ('(')
-                Prev_Tok_RParen		= 0x02,	// previous token was a right parenthesis (')')
-                Prev_Tok_Colon		= 0x04,	// previous token was a colon (':')
-                Prev_Tok_Comma		= 0x08,	// previous token was a comma (',')
-                Prev_Tok_Name		= 0x10,	// previous token was a node name (e.g. '2', 'P._articulata')
-                Prev_Tok_EdgeLen	= 0x20	// previous token was an edge length (e.g. '0.1', '1.7e-3')
+            enum
+            {
+                Prev_Tok_LParen = 0x01, // previous token was a left parenthesis ('(')
+                Prev_Tok_RParen = 0x02, // previous token was a right parenthesis (')')
+                Prev_Tok_Colon = 0x04,  // previous token was a colon (':')
+                Prev_Tok_Comma = 0x08,  // previous token was a comma (',')
+                Prev_Tok_Name = 0x10,   // previous token was a node name (e.g. '2', 'P._articulata')
+                Prev_Tok_EdgeLen = 0x20 // previous token was an edge length (e.g. '0.1', '1.7e-3')
             };
             unsigned previous = Prev_Tok_LParen;
 
             // Some useful flag combinations
             unsigned LParen_Valid = (Prev_Tok_LParen | Prev_Tok_Comma);
             unsigned RParen_Valid = (Prev_Tok_RParen | Prev_Tok_Name | Prev_Tok_EdgeLen);
-            unsigned Comma_Valid  = (Prev_Tok_RParen | Prev_Tok_Name | Prev_Tok_EdgeLen);
-            unsigned Colon_Valid  = (Prev_Tok_RParen | Prev_Tok_Name);
-            unsigned Name_Valid   = (Prev_Tok_RParen | Prev_Tok_LParen | Prev_Tok_Comma);
+            unsigned Comma_Valid = (Prev_Tok_RParen | Prev_Tok_Name | Prev_Tok_EdgeLen);
+            unsigned Colon_Valid = (Prev_Tok_RParen | Prev_Tok_Name);
+            unsigned Name_Valid = (Prev_Tok_RParen | Prev_Tok_LParen | Prev_Tok_Comma);
 
             // Set to true while reading an edge length
             bool inside_edge_length = false;
@@ -635,14 +690,18 @@ namespace strom
 
             // loop through the characters in newick, building up tree as we go
             unsigned position_in_string = 0;
-            for (auto ch : commentless_newick) {    
+            for (auto ch : commentless_newick)
+            {
                 position_in_string++;
 
-                if (inside_quoted_name) {
-                    if (ch == '\'') {
+                if (inside_quoted_name)
+                {
+                    if (ch == '\'')
+                    {
                         inside_quoted_name = false;
                         node_name_position = 0;
-                        if (!nd->_left_child) {
+                        if (!nd->_left_child)
+                        {
                             extractNodeNumberFromName(nd, used);
                             curr_leaf++;
                         }
@@ -655,39 +714,46 @@ namespace strom
 
                     continue;
                 }
-                else if (inside_unquoted_name) {
+                else if (inside_unquoted_name)
+                {
                     if (ch == '(')
                         throw XStrom(boost::str(boost::format("Unexpected left parenthesis inside node name at position %d in tree description") % node_name_position));
 
-                    if (iswspace(ch) || ch == ':' || ch == ',' || ch == ')') {
+                    if (iswspace(ch) || ch == ':' || ch == ',' || ch == ')')
+                    {
                         inside_unquoted_name = false;
 
                         // Expect node name only after a left paren (child's name), a comma (sib's name) or a right paren (parent's name)
                         if (!(previous & Name_Valid))
                             throw XStrom(boost::str(boost::format("Unexpected node name (%s) at position %d in tree description") % nd->_name % node_name_position));
 
-                        if (!nd->_left_child) {
+                        if (!nd->_left_child)
+                        {
                             extractNodeNumberFromName(nd, used);
                             curr_leaf++;
                         }
 
                         previous = Prev_Tok_Name;
                     }
-                    else {
+                    else
+                    {
                         nd->_name += ch;
                         continue;
                     }
                 }
-                else if (inside_edge_length) {
-                    if (ch == ',' || ch == ')' || iswspace(ch)) {
+                else if (inside_edge_length)
+                {
+                    if (ch == ',' || ch == ')' || iswspace(ch))
+                    {
                         inside_edge_length = false;
                         edge_length_position = 0;
                         extractEdgeLen(nd, edge_length_str);
                         ++num_edge_lengths;
                         previous = Prev_Tok_EdgeLen;
                     }
-                    else {
-                        bool valid = (ch =='e' || ch == 'E' || ch =='.' || ch == '-' || ch == '+' || isdigit(ch));
+                    else
+                    {
+                        bool valid = (ch == 'e' || ch == 'E' || ch == '.' || ch == '-' || ch == '+' || isdigit(ch));
                         if (!valid)
                             throw XStrom(boost::str(boost::format("Invalid branch length character (%c) at position %d in tree description") % ch % position_in_string));
                         edge_length_str += ch;
@@ -698,105 +764,109 @@ namespace strom
                 if (iswspace(ch))
                     continue;
 
-                switch(ch) {
-                    case ';':
-                        break;
+                switch (ch)
+                {
+                case ';':
+                    break;
 
-                    case ')':
-                        // If nd is bottommost node, expecting left paren or semicolon, but not right paren
-                        if (!nd->_parent)
-                            throw XStrom(boost::str(boost::format("Too many right parentheses at position %d in tree description") % position_in_string));
+                case ')':
+                    // If nd is bottommost node, expecting left paren or semicolon, but not right paren
+                    if (!nd->_parent)
+                        throw XStrom(boost::str(boost::format("Too many right parentheses at position %d in tree description") % position_in_string));
 
-                        // Expect right paren only after an edge length, a node name, or another right paren
-                        if (!(previous & RParen_Valid))
-                            throw XStrom(boost::str(boost::format("Unexpected right parenthesisat position %d in tree description") % position_in_string));
+                    // Expect right paren only after an edge length, a node name, or another right paren
+                    if (!(previous & RParen_Valid))
+                        throw XStrom(boost::str(boost::format("Unexpected right parenthesisat position %d in tree description") % position_in_string));
 
-                        // Go down a level
-                        nd = nd->_parent;
-                        if (!nd->_left_child->_right_sib)
-                            throw XStrom(boost::str(boost::format("Internal node has only one child at position %d in tree description") % position_in_string));
-                        previous = Prev_Tok_RParen;
-                        break;
+                    // Go down a level
+                    nd = nd->_parent;
+                    if (!nd->_left_child->_right_sib)
+                        throw XStrom(boost::str(boost::format("Internal node has only one child at position %d in tree description") % position_in_string));
+                    previous = Prev_Tok_RParen;
+                    break;
 
-                    case ':':
-                        // Expect colon only after a node name or another right paren
-                        if (!(previous & Colon_Valid))
-                            throw XStrom(boost::str(boost::format("Unexpected colon at position %d in tree description") % position_in_string));
-                        previous = Prev_Tok_Colon;
-                        break;
+                case ':':
+                    // Expect colon only after a node name or another right paren
+                    if (!(previous & Colon_Valid))
+                        throw XStrom(boost::str(boost::format("Unexpected colon at position %d in tree description") % position_in_string));
+                    previous = Prev_Tok_Colon;
+                    break;
 
-                    case ',':
-                        // Expect comma only after an edge length, a node name, or a right paren
-                        if (!nd->_parent || !(previous & Comma_Valid))
-                            throw XStrom(boost::str(boost::format("Unexpected comma at position %d in tree description") % position_in_string));
+                case ',':
+                    // Expect comma only after an edge length, a node name, or a right paren
+                    if (!nd->_parent || !(previous & Comma_Valid))
+                        throw XStrom(boost::str(boost::format("Unexpected comma at position %d in tree description") % position_in_string));
 
-                        // Check for polytomies
-                        if (!canHaveSibling(nd, rooted, allow_polytomies)) {
-                            throw XStrom(boost::str(boost::format("Polytomy found in the following tree description but polytomies prohibited:\n%s") % newick));
-                        }
+                    // Check for polytomies
+                    if (!canHaveSibling(nd, rooted, allow_polytomies))
+                    {
+                        throw XStrom(boost::str(boost::format("Polytomy found in the following tree description but polytomies prohibited:\n%s") % newick));
+                    }
 
-                        // Create the sibling
-                        curr_node_index++;
-                        if (curr_node_index == _tree->_nodes.size())
-                            throw XStrom(boost::str(boost::format("Too many nodes specified by tree description (%d nodes allocated for %d leaves)") % _tree->_nodes.size() % _tree->_nleaves));
-                        nd->_right_sib = &_tree->_nodes[curr_node_index];
-                        nd->_right_sib->_parent = nd->_parent;
-                        nd = nd->_right_sib;
-                        previous = Prev_Tok_Comma;
-                        break;
+                    // Create the sibling
+                    curr_node_index++;
+                    if (curr_node_index == _tree->_nodes.size())
+                        throw XStrom(boost::str(boost::format("Too many nodes specified by tree description (%d nodes allocated for %d leaves)") % _tree->_nodes.size() % _tree->_nleaves));
+                    nd->_right_sib = &_tree->_nodes[curr_node_index];
+                    nd->_right_sib->_parent = nd->_parent;
+                    nd = nd->_right_sib;
+                    previous = Prev_Tok_Comma;
+                    break;
 
-                    case '(':
-                        // Expect left paren only after a comma or another left paren
-                        if (!(previous & LParen_Valid))
-                            throw XStrom(boost::str(boost::format("Not expecting left parenthesis at position %d in tree description") % position_in_string));
+                case '(':
+                    // Expect left paren only after a comma or another left paren
+                    if (!(previous & LParen_Valid))
+                        throw XStrom(boost::str(boost::format("Not expecting left parenthesis at position %d in tree description") % position_in_string));
 
-                        // Create new node above and to the left of the current node
-                        assert(!nd->_left_child);
-                        curr_node_index++;
-                        if (curr_node_index == _tree->_nodes.size())
-                            throw XStrom(boost::str(boost::format("malformed tree description (more than %d nodes specified)") % _tree->_nodes.size()));
-                        nd->_left_child = &_tree->_nodes[curr_node_index];
-                        nd->_left_child->_parent = nd;
-                        nd = nd->_left_child;
-                        previous = Prev_Tok_LParen;
-                        break;
+                    // Create new node above and to the left of the current node
+                    assert(!nd->_left_child);
+                    curr_node_index++;
+                    if (curr_node_index == _tree->_nodes.size())
+                        throw XStrom(boost::str(boost::format("malformed tree description (more than %d nodes specified)") % _tree->_nodes.size()));
+                    nd->_left_child = &_tree->_nodes[curr_node_index];
+                    nd->_left_child->_parent = nd;
+                    nd = nd->_left_child;
+                    previous = Prev_Tok_LParen;
+                    break;
 
-                    case '\'':
-                        // Encountered an apostrophe, which always indicates the start of a
-                        // node name (but note that node names do not have to be quoted)
+                case '\'':
+                    // Encountered an apostrophe, which always indicates the start of a
+                    // node name (but note that node names do not have to be quoted)
 
-                        // Expect node name only after a left paren (child's name), a comma (sib's name)
-                        // or a right paren (parent's name)
-                        if (!(previous & Name_Valid))
-                            throw XStrom(boost::str(boost::format("Not expecting node name at position %d in tree description") % position_in_string));
+                    // Expect node name only after a left paren (child's name), a comma (sib's name)
+                    // or a right paren (parent's name)
+                    if (!(previous & Name_Valid))
+                        throw XStrom(boost::str(boost::format("Not expecting node name at position %d in tree description") % position_in_string));
 
-                        // Get the rest of the name
-                        nd->_name.clear();
+                    // Get the rest of the name
+                    nd->_name.clear();
 
-                        inside_quoted_name = true;
+                    inside_quoted_name = true;
+                    node_name_position = position_in_string;
+
+                    break;
+
+                default:
+                    // Get here if ch is not one of ();:,'
+
+                    // Expecting either an edge length or an unquoted node name
+                    if (previous == Prev_Tok_Colon)
+                    {
+                        // Edge length expected (e.g. "235", "0.12345", "1.7e-3")
+                        inside_edge_length = true;
+                        edge_length_position = position_in_string;
+                        edge_length_str = ch;
+                    }
+                    else
+                    {
+                        // Get the node name
+                        nd->_name = ch;
+
+                        inside_unquoted_name = true;
                         node_name_position = position_in_string;
-
-                        break;
-
-                    default:
-                        // Get here if ch is not one of ();:,'
-
-                        // Expecting either an edge length or an unquoted node name
-                        if (previous == Prev_Tok_Colon) {
-                            // Edge length expected (e.g. "235", "0.12345", "1.7e-3")
-                            inside_edge_length = true;
-                            edge_length_position = position_in_string;
-                            edge_length_str = ch;
-                        }
-                        else {
-                            // Get the node name
-                            nd->_name = ch;
-
-                            inside_unquoted_name = true;
-                            node_name_position = position_in_string;
-                        }
-                }   // end of switch statement
-            }   // loop over characters in newick string
+                    }
+                } // end of switch statement
+            }     // loop over characters in newick string
 
             if (inside_unquoted_name)
                 throw XStrom(boost::str(boost::format("Tree description ended before end of node name starting at position %d was found") % node_name_position));
@@ -805,7 +875,8 @@ namespace strom
             if (inside_quoted_name)
                 throw XStrom(boost::str(boost::format("Expecting single quote to mark the end of node name at position %d in tree description") % node_name_position));
 
-            if (!_tree->_is_rooted) {
+            if (!_tree->_is_rooted)
+            {
                 // Root at leaf whose _number = 0
                 rerootAtNodeNumber(0);
             }
@@ -814,11 +885,12 @@ namespace strom
             refreshLevelorder();
             renumberInternals();
         }
-        catch(XStrom x) {
+        catch (XStrom x)
+        {
             clear();
             throw x;
         }
-    }  
+    }
 
 
 } // namespace strom
