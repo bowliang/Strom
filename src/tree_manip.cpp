@@ -1,24 +1,27 @@
 #include "tree_manip.hpp"
+#include <fstream>
+#include <algorithm>
+#include "utility.hpp"
 
 namespace strom
 {
     // This is where function bodies go
     TreeManip::TreeManip()
     {
-        std::cout << "Constructing a TreeManip" << std::endl;
+        //std::cout << "Constructing a TreeManip" << std::endl;
         clear();
     }
 
     TreeManip::TreeManip(Tree::SharedPtr t)
     {
-        std::cout << "Constructing a TreeManip with a supplied tree" << std::endl;
+        //std::cout << "Constructing a TreeManip with a supplied tree" << std::endl;
         clear();
         setTree(t);
     }
 
     TreeManip::~TreeManip()
     {
-        std::cout << "Destroying a TreeManip" << std::endl;
+        //std::cout << "Destroying a TreeManip" << std::endl;
     }
 
     void TreeManip::clear()
@@ -40,9 +43,11 @@ namespace strom
     double TreeManip::calcTreeLength() const
     {
         double TL = 0.0;
-        for (auto nd : _tree->_preorder)
+        Node *root_child = _tree->_root->_left_child;
+        while (root_child != NULL)
         {
-            TL += nd->_edge_length;
+            TL += root_child->_edge_length;
+            root_child = root_child->_left_child;
         }
         return TL;
     }
@@ -57,6 +62,18 @@ namespace strom
         for (auto nd : _tree->_preorder)
         {
             nd->setEdgeLength(scaler * nd->_edge_length);
+        }
+    }
+
+    void TreeManip::buildNodeNameAndNumberMap()
+    {
+        for (auto nd : _tree->_preorder)
+        {
+            if (nd->_left_child == NULL)
+            {
+                _node_name_and_number_map[nd->_name] = nd->_number;
+                // std::cout << "nd->_name " << nd->_name << ", nd->_number " << nd->_number << "\n";
+            }
         }
     }
 
@@ -349,17 +366,21 @@ namespace strom
         // sanity check: first preorder node should be the only child of the root node
         assert(first_preorder->_right_sib == 0);
 
-        Node *nd = first_preorder;
+        addNodeToPreOrder(first_preorder);
+    }
+
+    void TreeManip::addNodeToPreOrder(Node *nd)
+    {
+        if (nd == NULL)
+            return;
+
         _tree->_preorder.push_back(nd);
 
-        while (true)
-        {
-            nd = findNextPreorder(nd);
-            if (nd)
-                _tree->_preorder.push_back(nd);
-            else
-                break;
-        } // end while loop
+        if (nd->_left_child == NULL)
+            return;
+
+        addNodeToPreOrder(nd->_left_child);
+        addNodeToPreOrder(nd->_left_child->_right_sib);
     }
 
     void TreeManip::refreshLevelorder()
@@ -563,6 +584,295 @@ namespace strom
         _tree->_root = prospective_root;
         refreshPreorder();
         refreshLevelorder();
+    }
+
+    void TreeManip::narrowExchangeFrom(TreeManip &original_tm)
+    {
+        std::string newick = original_tm.makeNewick(8);
+        this->buildFromNewick(newick, true, false);
+        _tree->buildNodesHeightInfo();
+
+        Node::PtrVector internal_nodes = _tree->getAllInternals();
+        std::random_shuffle(internal_nodes.begin(), internal_nodes.end());
+        Node *grand_parent = internal_nodes.front();
+        while (grand_parent->_left_child->_left_child == NULL && grand_parent->getRightChild()->_left_child == NULL)
+        {
+            std::random_shuffle(internal_nodes.begin(), internal_nodes.end());
+            grand_parent = internal_nodes.front();
+        }
+
+        Node *parent = grand_parent->_left_child;
+        Node *uncle = grand_parent->getRightChild();
+        if (parent->_height > uncle->_height)
+        {
+            std::swap(parent, uncle);
+        }
+
+        Node::PtrVector child_nodes;
+        child_nodes.push_back(parent->_left_child);
+        child_nodes.push_back(parent->getRightChild());
+        std::random_shuffle(child_nodes.begin(), child_nodes.end());
+        Node *child = child_nodes[0];
+
+        exchangeNodes(child, uncle, parent, grand_parent);
+        _tree->updateNodesHeightInfo();
+    }
+
+    void TreeManip::wideExchangeFrom(TreeManip &original_tm)
+    {
+        std::string newick = original_tm.makeNewick(8);
+        this->buildFromNewick(newick, true, false);
+        _tree->buildNodesHeightInfo();
+
+        Node::PtrVector all_nodes = _tree->getPreOrder();
+        all_nodes.erase(all_nodes.begin());
+
+        while (true)
+        {
+            std::random_shuffle(all_nodes.begin(), all_nodes.end());
+            Node *i = all_nodes.front();
+            Node *root_node = _tree->_root->_left_child;
+
+            Node *j = i;
+            while (j == i || j == root_node)
+            {
+                std::random_shuffle(all_nodes.begin(), all_nodes.end());
+                j = all_nodes.front();
+            }
+
+            Node *ip = i->_parent;
+            Node *jp = j->_parent;
+
+            if ((ip != jp) && (i != jp) && (j != ip) && (j->_height > ip->_height) && (i->_height > jp->_height))
+            {
+                //std::cout<<"i " <<i->_number <<", j " <<j->_number <<", ip " <<ip->_number <<", jp " <<jp->_number <<"\n";
+                exchangeNodes(i, j, ip, jp);
+                _tree->updateNodesHeightInfo();
+                return;
+            }
+        }
+    }
+
+    void TreeManip::FNPRExchangeFrom(TreeManip &original_tm)
+    {
+        std::string newick = original_tm.makeNewick(8);
+        this->buildFromNewick(newick, true, false);
+        _tree->buildNodesHeightInfo();
+
+        Node::PtrVector all_nodes = _tree->getPreOrder();
+        all_nodes.erase(all_nodes.begin());
+
+        while (true)
+        {
+            Node *root_node = _tree->_root->_left_child;
+            std::random_shuffle(all_nodes.begin(), all_nodes.end());
+            Node *i = all_nodes.front();
+            while (i == root_node || i->_parent == root_node)
+            {
+                std::random_shuffle(all_nodes.begin(), all_nodes.end());
+                i = all_nodes.front();
+            }
+
+            Node *ip = i->_parent;
+            Node *igp = ip->_parent;
+            Node *ib = ip->_left_child;
+            if (i == ib)
+            {
+                ib = i->_right_sib;
+            }
+
+            Node *j = ip;
+            while (ip == j || j == root_node || ip == j->_parent)
+            {
+                std::random_shuffle(all_nodes.begin(), all_nodes.end());
+                j = all_nodes.front();
+            }
+            Node *jp = j->_parent;
+
+            if ((j->_height > ip->_height) && (jp->_height < ip->_height))
+            {
+                Node *new_igp = jp;
+                double igp_height = igp->_height;
+                double jp_height = jp->_height;
+                double ip_height = ip->_height;
+
+                pruneChild(ip, ib);
+                pruneChild(igp, ip);
+                graftChild(igp, ib);
+
+                pruneChild(new_igp, j);
+                graftChild(new_igp, ip);
+                graftChild(ip, j);
+
+                refreshPreorder();
+                refreshLevelorder();
+                renumberInternals();
+
+                //adjust edge length
+                ib->setEdgeLength(ib->_height - igp_height);
+                ip->setEdgeLength(ip->_height - jp_height);
+                j->setEdgeLength(j->_height - ip_height);
+                _tree->updateNodesHeightInfo();
+                
+                return;
+            }
+        }
+    }
+
+    void TreeManip::exchangeNodes(Node *child, Node *uncle, Node *parent, Node *grand_parent)
+    {
+        double parent_height = parent->_height;
+        double grand_parent_height = grand_parent->_height;
+
+        std::cout << "parent_height " << parent_height << "\n";
+        std::cout << "grand_parent_height " << grand_parent_height << "\n";
+        // std::cout<<"child_length " <<child_length <<"\n";
+
+        replace(parent, child, uncle);
+        replace(grand_parent, uncle, child);
+
+        refreshPreorder();
+        refreshLevelorder();
+        renumberInternals();
+
+        //adjust edge length
+        child->setEdgeLength(child->_height - grand_parent_height);
+        uncle->setEdgeLength(uncle->_height - parent_height);
+        _tree->updateNodesHeightInfo();
+    }
+
+    void TreeManip::replace(Node *parent, Node *child, Node *replacement)
+    {
+        pruneChild(parent, child);
+        graftChild(parent, replacement);
+    }
+
+    void TreeManip::pruneChild(Node *parent, Node *child)
+    {
+        if (child == parent->_left_child)
+        {
+            if (child->_right_sib)
+            {
+                parent->_left_child = child->_right_sib;
+                child->_right_sib = 0;
+            }
+            else
+            {
+                parent->_left_child = 0;
+            }
+        }
+        else
+        {
+            Node *left_child = parent->_left_child;
+            while (left_child->_right_sib != child)
+                left_child = left_child->_right_sib;
+            Node *child_right_sib = child->_right_sib;
+            left_child->_right_sib = child_right_sib;
+        }
+    }
+
+    void TreeManip::graftChild(Node *parent, Node *child)
+    {
+        // Graft node child onto node parent (but don't unhook node b from its parent just yet)
+        if (parent->_left_child)
+        {
+            Node *left_child = parent->_left_child;
+            while (left_child->_right_sib)
+                left_child = left_child->_right_sib;
+            left_child->_right_sib = child;
+        }
+        else
+        {
+            parent->_left_child = child;
+        }
+        child->_parent = parent;
+    }
+
+    void TreeManip::totalLengthChange(double &proposed_rootage, double &rate_prior_ratio, double &rate_proposal_ratio)
+    {
+        _tree->updateNodesHeightInfo();
+
+        double edge_u = getUniformDistribution(0.0, 1.0);
+        double edge_m = exp(_lambda_edge * (edge_u - 0.5));
+        double cur_rootage = _tree->getTreeMaxHeight();
+        // std::cout<<"_lambda_edge " << _lambda_edge <<"\n";
+        // std::cout<<"edge_u " << edge_u <<"\n";
+        // std::cout<<"edge_m " << edge_m <<"\n";
+
+        scaleAllEdgeLengths(edge_m);
+        _tree->updateNodesHeightInfo();
+        proposed_rootage = cur_rootage * edge_m;
+        // std::cout<<"proposed_rootage " << proposed_rootage <<"\n";
+        // std::cout<<"cur_rootage " << cur_rootage <<"\n";
+
+        double proposed_rootage_dnorm = getNormalDistributionDensity(proposed_rootage, Tmax, 0.2);
+        double cur_rootage_dnorm = getNormalDistributionDensity(cur_rootage, Tmax, 0.2);
+        rate_prior_ratio = proposed_rootage_dnorm / cur_rootage_dnorm;
+        rate_proposal_ratio = pow(edge_m, (_tree->numLeaves() - 1));
+    }
+
+    void TreeManip::randomLengthChange(double delta_time, double &time_proposal_ratio)
+    {
+        _tree->updateNodesHeightInfo();
+        Node::PtrVector internal_nodes = _tree->getAllInternals();
+        std::random_shuffle(internal_nodes.begin(), internal_nodes.end());
+        Node *internal = internal_nodes.front();
+        changeInternalNode(internal, delta_time, time_proposal_ratio);        
+    }
+
+    void TreeManip::allInternalLengthChange(double delta_time, double &time_proposal_ratio)
+    {
+        _tree->updateNodesHeightInfo();
+        Node::PtrVector internal_nodes = _tree->getAllInternals();
+        for (auto nd : internal_nodes) {
+            changeInternalNode(nd, delta_time, time_proposal_ratio);        
+        }
+    }
+
+    void TreeManip::changeInternalNode(Node* internal, double delta_time, double &time_proposal_ratio)
+    {
+        // get parent and child edge length
+        double parent_edge_length = internal->_edge_length;
+        double child_edge_length = internal->_left_child->_edge_length;
+        bool find_right_child = false;
+        if (child_edge_length > internal->_left_child->_right_sib->_edge_length)
+        {
+            child_edge_length = internal->_left_child->_right_sib->_edge_length;
+            find_right_child = true;
+        }
+        double std_dev = std::min(parent_edge_length, child_edge_length) * delta_time / 2.0;
+        double proposed_edge_length = getNormalDistribution(parent_edge_length, std_dev);
+        internal->_edge_length = proposed_edge_length;
+        internal->_left_child->_edge_length = parent_edge_length + internal->_left_child->_edge_length - proposed_edge_length;
+        internal->_left_child->_right_sib->_edge_length = parent_edge_length + internal->_left_child->_right_sib->_edge_length - proposed_edge_length;
+
+        double proposed_child_edge_length;
+        if (find_right_child)
+        {
+            proposed_child_edge_length = internal->_left_child->_right_sib->_edge_length;
+        }
+        else
+        {
+            proposed_child_edge_length = internal->_left_child->_edge_length;
+        }
+        _tree->updateNodesHeightInfo();
+
+        double cur_on_proposed_normal_density = getNormalDistributionDensity(parent_edge_length, proposed_edge_length,
+                                                                             std::min(proposed_edge_length, proposed_child_edge_length) * delta_time / 2.0);
+        double proposed_on_cur_normal_density = getNormalDistributionDensity(proposed_edge_length, parent_edge_length, std_dev);
+        time_proposal_ratio *= exp(log(cur_on_proposed_normal_density) - log(proposed_on_cur_normal_density));
+    }
+
+    void TreeManip::addTToName() 
+    {
+        for (auto nd : _tree->_preorder)
+        {            
+            if (nd->_left_child == NULL) 
+            {
+                std::string cur_name = nd->getName();
+                nd->setName("t" + cur_name);
+            }
+        }
     }
 
     void TreeManip::buildFromNewick(const std::string newick, bool rooted, bool allow_polytomies)
@@ -835,5 +1145,21 @@ namespace strom
             clear();
             throw x;
         }
+    }
+
+    void TreeManip::buildFromNewickFile(const std::string filename, bool rooted, bool allow_polytomies)
+    {
+        // read input tree file
+        std::ifstream fin;
+        fin.open(filename);
+        std::string newick;
+        getline(fin, newick);
+        fin.close();
+
+        // erase "t" from tree node label
+        newick.erase(std::remove(newick.begin(), newick.end(), 't'), newick.end());
+
+        // build tree
+        buildFromNewick(newick, rooted, allow_polytomies);
     }
 } // namespace strom
