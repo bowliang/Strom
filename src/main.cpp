@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
     // 1. Start with input random tree file and input observed data
     std::string true_tree_filename = "./input/tree/RandomTreeScale_3.tre";
     std::string true_time_tree_filename = "./input/tree/RandomTree_3.tre";
-    std::string tree_data_filename = "./input/data/Long_Obs_binary_obs_0_1_tip_mu_005_alpha_001_beta_001_matrix_1.csv";
+    std::string tree_data_filename = "./Long_Obs_binary_obs_0_1_tip_mu_005_alpha_001_beta_001_matrix_2.csv";
 
     // 2. Build tree and get tree info
     TreeManip true_tree_tm, true_time_tree_tm;
@@ -60,13 +60,23 @@ int main(int argc, char *argv[])
     std::vector<std::vector<int>> tree_data_original;
     readObservedDataFromCSVFile(5000, tree_data_filename, data_label, tree_data_original);
 
+    for (auto label : data_label) 
+    {
+        std::cout<<"label "<<label<<"\n";
+    }
+
+    for (auto data : tree_data_original[0]) 
+    {
+        std::cout<<"data "<<data<<"\n";
+    }
+
     // 3. initialize value based on some distribution (normal, dirichlet)
-    alpha = getUniformDistribution(0, 0.45);
-    beta = getUniformDistribution(0, 0.45);
+    alpha = 0.01; // getUniformDistribution(0, 0.45);
+    beta = 0.01; // getUniformDistribution(0, 0.45);
     m01 = 1, m00 = -m01, rootage = 1.045;
     m10 = getUniformDistribution(0, 1.0);
     m11 = -m10;
-    pi_error_alpha = 0.1, pi_error_beta = 0.2, pi_mutation_M10 = 0.3, delta_time = 0.20;
+    pi_error_alpha = 0.0, pi_error_beta = 0.0, pi_mutation_M10 = 0.3, delta_time = 0.20;
     lambda_edge = 2 * log(1.2), lambda_root = 2 * log(1.2);
     alpha_vector.reserve(niter);
     alpha_vector.push_back(alpha);
@@ -79,7 +89,7 @@ int main(int argc, char *argv[])
 
     // Two values may need to generate from R
     //double x[4] = {0.344875, 0.1136095, 0.3938868, 0.1476288}; // rdirichlet
-    std::string br_tree_string = "((4:0.1533530955,2:0.1533530955):0.8916469045,(5:0.6116008526,(3:0.338719725,1:0.338719725):0.2728811275):0.4333991474);";
+    std::string br_tree_string = "((2:0.4994737979,3:0.4994737979):0.5293488252,((4:0.4210867618,1:0.4210867618):0.1298891809,5:0.5509759427):0.4778466805);";
     TreeManip br_tree;
     br_tree.buildFromNewick(br_tree_string, true, false);
     std::cout << "br_tree: " << br_tree.makeNewick(3) << std::endl;

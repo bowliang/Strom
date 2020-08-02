@@ -794,21 +794,24 @@ namespace strom
 
         double edge_u = getUniformDistribution(0.0, 1.0);
         double edge_m = exp(_lambda_edge * (edge_u - 0.5));
-        double cur_rootage = _tree->getTreeMaxHeight();
-        // std::cout<<"_lambda_edge " << _lambda_edge <<"\n";
-        // std::cout<<"edge_u " << edge_u <<"\n";
-        // std::cout<<"edge_m " << edge_m <<"\n";
+        double cur_rootage = proposed_rootage;
+        std::cout<<"_lambda_edge " << _lambda_edge <<"\n";
+        std::cout<<"edge_u " << edge_u <<"\n";
+        std::cout<<"edge_m " << edge_m <<"\n";
 
         scaleAllEdgeLengths(edge_m);
         _tree->updateNodesHeightInfo();
         proposed_rootage = cur_rootage * edge_m;
-        // std::cout<<"proposed_rootage " << proposed_rootage <<"\n";
-        // std::cout<<"cur_rootage " << cur_rootage <<"\n";
+        std::cout<<"proposed_rootage " << proposed_rootage <<"\n";
+        std::cout<<"cur_rootage " << cur_rootage <<"\n";
 
-        double proposed_rootage_dnorm = getNormalDistributionDensity(proposed_rootage, Tmax, 0.2);
-        double cur_rootage_dnorm = getNormalDistributionDensity(cur_rootage, Tmax, 0.2);
+        double proposed_rootage_dnorm = getNormalDistributionDensity(proposed_rootage, 0.9125, 0.2);
+        double cur_rootage_dnorm = getNormalDistributionDensity(cur_rootage, 0.9125, 0.2);
         rate_prior_ratio = proposed_rootage_dnorm / cur_rootage_dnorm;
         rate_proposal_ratio = pow(edge_m, (_tree->numLeaves() - 1));
+
+        std::cout<<"proposed_rootage_dnorm " << proposed_rootage_dnorm <<"\n";
+        std::cout<<"cur_rootage_dnorm " << cur_rootage_dnorm <<"\n";
     }
 
     void TreeManip::randomLengthChange(double delta_time, double &time_proposal_ratio)
@@ -831,8 +834,10 @@ namespace strom
 
     void TreeManip::changeInternalNode(Node* internal, double delta_time, double &time_proposal_ratio)
     {
-        // get parent and child edge length
+        // get parent and child edge height
+        double parent_edge_height = internal->_height;
         double parent_edge_length = internal->_edge_length;
+        double child_edge_height = internal->_left_child->_height;
         double child_edge_length = internal->_left_child->_edge_length;
         bool find_right_child = false;
         if (child_edge_length > internal->_left_child->_right_sib->_edge_length)
@@ -841,11 +846,18 @@ namespace strom
             find_right_child = true;
         }
         double std_dev = std::min(parent_edge_length, child_edge_length) * delta_time / 2.0;
-        double proposed_edge_length = getNormalDistribution(parent_edge_length, std_dev);
-        internal->_edge_length = proposed_edge_length;
-        internal->_left_child->_edge_length = parent_edge_length + internal->_left_child->_edge_length - proposed_edge_length;
-        internal->_left_child->_right_sib->_edge_length = parent_edge_length + internal->_left_child->_right_sib->_edge_length - proposed_edge_length;
+        double max_height = _tree->getTreeMaxHeight();
+        double proposed_edge_height = max_height - getNormalDistribution((max_height-parent_edge_height), std_dev);
+        internal->_edge_length = proposed_edge_height - internal->_parent->_height;
+        internal->_left_child->_edge_length = parent_edge_length + internal->_left_child->_edge_length - internal->_edge_length;
+        internal->_left_child->_right_sib->_edge_length = parent_edge_length + internal->_left_child->_right_sib->_edge_length - internal->_edge_length;
+        _tree->updateNodesHeightInfo();
 
+        std::cout<<"delta_time " << delta_time <<"\n";
+        std::cout<<"proposed_edge_height " << proposed_edge_height <<"\n";
+        std::cout<<"parent_edge_height " << parent_edge_height <<"\n";
+
+        double proposed_parent_br_len = internal->_edge_length;
         double proposed_child_edge_length;
         if (find_right_child)
         {
@@ -855,11 +867,10 @@ namespace strom
         {
             proposed_child_edge_length = internal->_left_child->_edge_length;
         }
-        _tree->updateNodesHeightInfo();
 
-        double cur_on_proposed_normal_density = getNormalDistributionDensity(parent_edge_length, proposed_edge_length,
-                                                                             std::min(proposed_edge_length, proposed_child_edge_length) * delta_time / 2.0);
-        double proposed_on_cur_normal_density = getNormalDistributionDensity(proposed_edge_length, parent_edge_length, std_dev);
+        double cur_on_proposed_normal_density = getNormalDistributionDensity(max_height-parent_edge_height, max_height-proposed_edge_height,
+                                                                             std::min(proposed_parent_br_len, proposed_child_edge_length) * delta_time / 2.0);
+        double proposed_on_cur_normal_density = getNormalDistributionDensity(max_height-proposed_edge_height, max_height-parent_edge_height, std_dev);
         time_proposal_ratio *= exp(log(cur_on_proposed_normal_density) - log(proposed_on_cur_normal_density));
     }
 
