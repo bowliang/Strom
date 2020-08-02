@@ -713,7 +713,7 @@ namespace strom
                 ip->setEdgeLength(ip->_height - jp_height);
                 j->setEdgeLength(j->_height - ip_height);
                 _tree->updateNodesHeightInfo();
-                
+
                 return;
             }
         }
@@ -795,20 +795,24 @@ namespace strom
         double edge_u = getUniformDistribution(0.0, 1.0);
         double edge_m = exp(_lambda_edge * (edge_u - 0.5));
         double cur_rootage = _tree->getTreeMaxHeight();
-        // std::cout<<"_lambda_edge " << _lambda_edge <<"\n";
-        // std::cout<<"edge_u " << edge_u <<"\n";
-        // std::cout<<"edge_m " << edge_m <<"\n";
+        std::cout<<"_lambda_edge " << _lambda_edge <<"\n";
+        std::cout<<"edge_u " << edge_u <<"\n";
+        std::cout<<"edge_m " << edge_m <<"\n";
 
         scaleAllEdgeLengths(edge_m);
         _tree->updateNodesHeightInfo();
         proposed_rootage = cur_rootage * edge_m;
-        // std::cout<<"proposed_rootage " << proposed_rootage <<"\n";
-        // std::cout<<"cur_rootage " << cur_rootage <<"\n";
+        std::cout<<"proposed_rootage " << proposed_rootage <<"\n";
+        std::cout<<"cur_rootage " << cur_rootage <<"\n";
 
-        double proposed_rootage_dnorm = getNormalDistributionDensity(proposed_rootage, Tmax, 0.2);
-        double cur_rootage_dnorm = getNormalDistributionDensity(cur_rootage, Tmax, 0.2);
+        double proposed_rootage_dnorm = getNormalDistributionDensity(proposed_rootage, 1.045, 0.05);
+        double cur_rootage_dnorm = getNormalDistributionDensity(cur_rootage, 1.045, 0.05);
         rate_prior_ratio = proposed_rootage_dnorm / cur_rootage_dnorm;
         rate_proposal_ratio = pow(edge_m, (_tree->numLeaves() - 1));
+        std::cout<<"proposed_rootage_dnorm " << proposed_rootage_dnorm <<"\n";
+        std::cout<<"cur_rootage_dnorm " << cur_rootage_dnorm <<"\n";
+        std::cout<<"rate_prior_ratio " << rate_prior_ratio <<"\n";
+        std::cout<<"rate_proposal_ratio " << rate_proposal_ratio <<"\n";
     }
 
     void TreeManip::randomLengthChange(double delta_time, double &time_proposal_ratio)
@@ -817,19 +821,20 @@ namespace strom
         Node::PtrVector internal_nodes = _tree->getAllInternals();
         std::random_shuffle(internal_nodes.begin(), internal_nodes.end());
         Node *internal = internal_nodes.front();
-        changeInternalNode(internal, delta_time, time_proposal_ratio);        
+        changeInternalNode(internal, delta_time, time_proposal_ratio);
     }
 
     void TreeManip::allInternalLengthChange(double delta_time, double &time_proposal_ratio)
     {
         _tree->updateNodesHeightInfo();
         Node::PtrVector internal_nodes = _tree->getAllInternals();
-        for (auto nd : internal_nodes) {
-            changeInternalNode(nd, delta_time, time_proposal_ratio);        
+        for (auto nd : internal_nodes)
+        {
+            changeInternalNode(nd, delta_time, time_proposal_ratio);
         }
     }
 
-    void TreeManip::changeInternalNode(Node* internal, double delta_time, double &time_proposal_ratio)
+    void TreeManip::changeInternalNode(Node *internal, double delta_time, double &time_proposal_ratio)
     {
         // get parent and child edge length
         double parent_edge_length = internal->_edge_length;
@@ -863,15 +868,28 @@ namespace strom
         time_proposal_ratio *= exp(log(cur_on_proposed_normal_density) - log(proposed_on_cur_normal_density));
     }
 
-    void TreeManip::addTToName() 
+    void TreeManip::addTToName()
     {
         for (auto nd : _tree->_preorder)
-        {            
-            if (nd->_left_child == NULL) 
+        {
+            if (nd->_left_child == NULL)
             {
                 std::string cur_name = nd->getName();
                 nd->setName("t" + cur_name);
             }
+        }
+    }
+
+    void TreeManip::buildNodesPossibilitiesInfo(double m10, double m01)
+    {
+        for (auto nd : _tree->_preorder)
+        {
+            getSubstitutionMatrix(nd->getEdgeLength(), m10, m01);
+
+            nd->setP00(substitution_matrix[0][0]);
+            nd->setP01(substitution_matrix[0][1]);
+            nd->setP10(substitution_matrix[1][0]);
+            nd->setP11(substitution_matrix[1][1]);
         }
     }
 

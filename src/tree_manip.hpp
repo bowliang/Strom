@@ -44,6 +44,8 @@ namespace strom
         void totalLengthChange(double &proposed_rootage, double &rate_prior_ratio, double &rate_proposal_ratio);
         void randomLengthChange(double delta_time, double &time_proposal_ratio);
         void allInternalLengthChange(double delta_time, double &time_proposal_ratio);
+        
+        void buildNodesPossibilitiesInfo(double m10, double m01);
 
         void clear();
 
