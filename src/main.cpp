@@ -115,16 +115,28 @@ double treeCompareFelsensteinDP(std::vector<std::vector<int>> &tree_data_origina
         // transfer value to state vector
         int value = it->first;
         int count = it->second;
-        //std::cout << "value: " << value << ", count: " << count << "\n";
+        std::cout << "value: " << value << ", count: " << count << "\n";
         std::vector<int> observed_state;
         observed_state.reserve(num_tips);
         encodeValueToState(value, num_tips, observed_state);
         std::vector<int> mapped_observed_state(observed_state);
         mapObservedStateToRightLabel(start_tree_tm, observed_state, mapped_observed_state, data_label);
 
+        for (auto s : observed_state)
+        {
+            std::cout << s << ", ";
+        }
+        std::cout << "\n";
+        for (auto s : mapped_observed_state)
+        {
+            std::cout << s << ", ";
+        }
+        std::cout << "\n";
+
         buildLeaveLikelihoodMatrix(mapped_observed_state, leaves_likelihood);
         double likelihood = felsensteinBinaryDP(mapped_observed_state, root, 0, likelihood_table, leaves_likelihood, m10);
         total_loglikelihood += log(likelihood) * count;
+        std::cout << "likelihood: " << likelihood << ", total_loglikelihood: " << total_loglikelihood << "\n";
         std::fill(likelihood_table[0].begin(), likelihood_table[0].end(), 0);
         std::fill(likelihood_table[1].begin(), likelihood_table[1].end(), 0);
     }
@@ -528,13 +540,22 @@ int main(int argc, char *argv[])
     std::vector<std::vector<int>> tree_data_original;
     readObservedDataFromCSVFile(5000, tree_data_filename, data_label, tree_data_original);
 
+    for (auto l : data_label)
+    {
+        std::cout << "label: " << l << std::endl;
+    }
+    for (auto data : tree_data_original[0])
+    {
+        std::cout << "data: " << data << std::endl;
+    }
+
     // 3. initialize value based on some distribution (normal, dirichlet)
     double alpha, beta, m01, m00, m10, m11, rootage;
     double lambda_edge, lambda_root;
     alpha = getUniformDistribution(0, 0.45);
     beta = getUniformDistribution(0, 0.45);
     m01 = 1, m00 = -m01, rootage = 1.045;
-    m10 = getUniformDistribution(0, 1.0);
+    m10 = 0.1; //getUniformDistribution(0, 1.0);
     m11 = -m10;
     lambda_edge = 2 * log(1.2), lambda_root = 2 * log(1.2);
 
