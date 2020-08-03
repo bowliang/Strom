@@ -24,6 +24,8 @@ namespace strom
         clear();
         std::string newick = tm1.makeNewick(8);
         this->buildFromNewick(newick, true, false);
+        this->updateNodesHeightInfo();
+        this->buildNodeNameAndNumberMap();
     }
 
     TreeManip::~TreeManip()
@@ -79,9 +81,19 @@ namespace strom
             {
                 _node_name_and_number_map[nd->_name] = nd->_number;
                 // std::cout << "nd->_name " << nd->_name << ", nd->_number " << nd->_number << "\n";
-            }
+            } 
         }
     }
+
+    int TreeManip::getNodeNumberByName(std::string name)
+    {
+        // potential issue when tip number larger than 10
+        if (name.length() > 1)
+        {
+            name = name.substr(0,1); 
+        }
+        return _node_name_and_number_map[name];
+    };
 
     void TreeManip::createTestTree()
     {
@@ -719,7 +731,7 @@ namespace strom
                 ip->setEdgeLength(ip->_height - jp_height);
                 j->setEdgeLength(j->_height - ip_height);
                 _tree.updateNodesHeightInfo();
-                
+
                 return;
             }
         }
@@ -823,19 +835,20 @@ namespace strom
         Node::PtrVector internal_nodes = _tree.getAllInternals();
         std::random_shuffle(internal_nodes.begin(), internal_nodes.end());
         Node *internal = internal_nodes.front();
-        changeInternalNode(internal, delta_time, time_proposal_ratio);        
+        changeInternalNode(internal, delta_time, time_proposal_ratio);
     }
 
     void TreeManip::allInternalLengthChange(double delta_time, double &time_proposal_ratio)
     {
         _tree.updateNodesHeightInfo();
         Node::PtrVector internal_nodes = _tree.getAllInternals();
-        for (auto nd : internal_nodes) {
-            changeInternalNode(nd, delta_time, time_proposal_ratio);        
+        for (auto nd : internal_nodes)
+        {
+            changeInternalNode(nd, delta_time, time_proposal_ratio);
         }
     }
 
-    void TreeManip::changeInternalNode(Node* internal, double delta_time, double &time_proposal_ratio)
+    void TreeManip::changeInternalNode(Node *internal, double delta_time, double &time_proposal_ratio)
     {
         // get parent and child edge length
         double parent_edge_length = internal->_edge_length;
@@ -869,11 +882,11 @@ namespace strom
         time_proposal_ratio *= exp(log(cur_on_proposed_normal_density) - log(proposed_on_cur_normal_density));
     }
 
-    void TreeManip::addTToName() 
+    void TreeManip::addTToName()
     {
         for (auto nd : _tree._preorder)
-        {            
-            if (nd->_left_child == NULL) 
+        {
+            if (nd->_left_child == NULL)
             {
                 std::string cur_name = nd->getName();
                 nd->setName("t" + cur_name);

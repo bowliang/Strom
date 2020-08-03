@@ -36,7 +36,7 @@ namespace strom
         void rerootAtNodeNumber(int node_number);
 
         void buildNodeNameAndNumberMap();
-        int getNodeNumberByName(std::string name) { return _node_name_and_number_map[name]; };
+        int getNodeNumberByName(std::string name);
         void addTToName();
 
         void narrowExchangeFrom(TreeManip &original_tm);

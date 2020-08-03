@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <chrono>
 #include <ctime>
+#include <fstream>
 
 #include "tree_manip.hpp"
 #include "utility.hpp"
@@ -15,10 +16,189 @@ using namespace strom;
 
 const double Node::_smallest_edge_length = 1.0e-12;
 double substitution_matrix[2][2], error_matrix[2][2];
+double const STD_DEV = 0.005;
+double const STD_DEV_M10 = 0.02;
+double const BD_ALPHA = 1000 * 0.01;
+double const BD_BETA = 1000 * (1 - 0.01);
+std::discrete_distribution<int> discrete_distribution{1, 1, 2, 2, 2, 1};
+
+void mapObservedStateToRightLabel(TreeManip &start_tree_tm, std::vector<int> &observed_state, std::vector<int> &mapped_observed_state, std::vector<std::string> &data_label)
+{
+    int id = 0;
+    for (auto state : observed_state)
+    {
+        std::string label = data_label[id];
+        mapped_observed_state[start_tree_tm.getNodeNumberByName(label)] = state;
+        id++;
+    }
+}
+
+void readObservedDataFromCSVFile(const int num_lines, const std::string tree_data_filename, std::vector<std::string> &data_label, std::vector<std::vector<int>> &tree_data)
+{
+    // read input tree file
+    std::ifstream fin;
+    fin.open(tree_data_filename);
+    std::string label, line;
+    getline(fin, label);
+    // erase " and "t" from data
+    label.erase(std::remove(label.begin(), label.end(), '"'), label.end());
+    label.erase(std::remove(label.begin(), label.end(), 't'), label.end());
+
+    // get label
+    std::string delimiter = ",";
+    //label.erase(0, 1); // remove first comma
+    size_t pos = 0;
+    int num;
+    while ((pos = label.find(delimiter)) != std::string::npos)
+    {
+        data_label.push_back(label.substr(0, pos));
+        label.erase(0, pos + delimiter.length());
+    }
+    data_label.push_back(label);
+
+    int line_i = 0;
+    std::vector<int> line_data;
+    while (line_i < num_lines && getline(fin, line))
+    {
+        // erase " from data
+        line.erase(std::remove(line.begin(), line.end(), '"'), line.end());
+        //line.erase(0, line.find(delimiter) + delimiter.length()); // remove first number and comma
+
+        while ((pos = line.find(delimiter)) != std::string::npos)
+        {
+            num = (line.substr(0, pos))[0] - '0';
+            line.erase(0, pos + delimiter.length());
+            line_data.push_back(num);
+        }
+        line_data.push_back(line[0] - '0');
+        tree_data.push_back(line_data);
+        line_data.clear();
+        line_i++;
+    }
+
+    fin.close();
+}
+
+void outputToCSVFile(const std::string output_filename, std::vector<double> &alpha_vector, std::vector<double> &beta_vector, std::vector<double> &m10_vector,
+                            std::vector<double> &rootage_vector, std::vector<double> &loglikelihood_vector, std::vector<TreeManip> &tree_manip_vector)
+{
+    std::ofstream myfile;
+    myfile.open(output_filename + ".csv");
+    myfile << "alpha, beta, m10, rootage, loglikelihood\n";
+    for (int i = 0; i < alpha_vector.size(); i++)
+    {
+        myfile << alpha_vector[i] << ", ";
+        myfile << beta_vector[i] << ", ";
+        myfile << m10_vector[i] << ", ";
+        myfile << rootage_vector[i] << ", ";
+        myfile << loglikelihood_vector[i] << "\n";
+    }
+
+    myfile.close();
+
+    myfile.open(output_filename + "_trees.txt");
+    for (int i = 0; i < tree_manip_vector.size(); i++)
+    {
+        tree_manip_vector[i].addTToName();
+        myfile << tree_manip_vector[i].makeNewick(3, true) << ";\n";
+    }
+    myfile.close();
+}
+
+
+double getAverageOfVector(std::vector<double> &vector, int ignore_first_n = 0)
+{
+    double result = 0.0;
+    for (int i = 0; i < vector.size(); i++)
+    {
+        if (i < ignore_first_n)
+        {
+            continue;
+        }
+        result += vector[i];
+    }
+    return (result / (vector.size() - ignore_first_n));
+}
+
+double getMaxOfVector(std::vector<double> &vector)
+{
+    double max = -std::numeric_limits<double>::max();
+    for (auto v : vector)
+    {
+        max = std::max(max, v);
+    }
+    return max;
+}
+
+double getMinOfVector(std::vector<double> &vector)
+{
+    double min = std::numeric_limits<double>::max();
+    for (auto v : vector)
+    {
+        min = std::min(min, v);
+    }
+    return min;
+}
+
+double adjustInfinity(double ratio)
+{
+    if (ratio == std::numeric_limits<double>::infinity())
+    {
+        return std::numeric_limits<double>::max();
+    }
+    else if (ratio == -std::numeric_limits<float>::infinity())
+    {
+        return -std::numeric_limits<double>::max();
+    }
+    else
+    {
+        return ratio;
+    }
+}
+
+int encodeStateToValue(std::vector<int> state)
+{
+    int value = 0;
+    for (auto s : state)
+    {
+        value <<= 1;
+        value += s;
+    }
+    return value;
+}
+
+void encodeValueToState(int value, int num_tips, std::vector<int> &state)
+{
+    int i = 0;
+    while (i < num_tips)
+    {
+        state.insert(state.begin(), value & 1);
+        value >>= 1;
+        i++;
+    }
+}
+
+void buildCountsTableForTreeData(std::vector<std::vector<int>> &tree_data_original, std::map<int, int> &state_code_and_count_map)
+{
+    // loop over all tree data, and increment corresponding encode value's count for each line
+    for (auto state : tree_data_original)
+    {
+        int encode_value = encodeStateToValue(state);
+        auto it = state_code_and_count_map.find(encode_value);
+        if (it == state_code_and_count_map.end())
+        {
+            state_code_and_count_map[encode_value] = 1;
+        }
+        else
+        {
+            (it->second)++;
+        }
+    }
+}
 
 void updateSubstitutionMatrix(double br_len, double m10)
 {
-    // Note to change m01 
+    // Note to change m01
     double m01 = 1.0;
     double divisor = m01 + m10;
     double exp_len = exp((-m01 - m10) * br_len);
@@ -56,8 +236,8 @@ void buildLeaveLikelihoodMatrix(std::vector<int> &observed_state, std::vector<st
     }
 }
 
-double felsensteinBinaryDP(std::vector<int> &observed_state, Node *cur_node, int cur_state, std::vector<std::vector<double>> &likelihood_table, 
-    std::vector<std::vector<double>> &leaves_likelihood, double m10)
+double felsensteinBinaryDP(std::vector<int> &observed_state, Node *cur_node, int cur_state, std::vector<std::vector<double>> &likelihood_table,
+                           std::vector<std::vector<double>> &leaves_likelihood, double m10)
 {
     if (likelihood_table[cur_state][cur_node->getNumber()] != 0.0)
     {
@@ -95,7 +275,7 @@ double felsensteinBinaryDP(std::vector<int> &observed_state, Node *cur_node, int
 }
 
 double treeCompareFelsensteinDP(std::vector<std::vector<int>> &tree_data_original, std::vector<std::string> &data_label, TreeManip &start_tree_tm, std::map<int, int> &state_code_and_count_map,
-    std::vector<std::vector<double>> &likelihood_table, std::vector<std::vector<double>> &leaves_likelihood, double m10)
+                                std::vector<std::vector<double>> &likelihood_table, std::vector<std::vector<double>> &leaves_likelihood, double m10)
 {
     // initialize values
     int num_tips = start_tree_tm.getNumLeaves();
@@ -115,36 +295,24 @@ double treeCompareFelsensteinDP(std::vector<std::vector<int>> &tree_data_origina
         // transfer value to state vector
         int value = it->first;
         int count = it->second;
-        std::cout << "value: " << value << ", count: " << count << "\n";
+        // std::cout << "value: " << value << ", count: " << count << "\n";
         std::vector<int> observed_state;
         observed_state.reserve(num_tips);
         encodeValueToState(value, num_tips, observed_state);
         std::vector<int> mapped_observed_state(observed_state);
         mapObservedStateToRightLabel(start_tree_tm, observed_state, mapped_observed_state, data_label);
 
-        for (auto s : observed_state)
-        {
-            std::cout << s << ", ";
-        }
-        std::cout << "\n";
-        for (auto s : mapped_observed_state)
-        {
-            std::cout << s << ", ";
-        }
-        std::cout << "\n";
-
         buildLeaveLikelihoodMatrix(mapped_observed_state, leaves_likelihood);
         double likelihood = felsensteinBinaryDP(mapped_observed_state, root, 0, likelihood_table, leaves_likelihood, m10);
         total_loglikelihood += log(likelihood) * count;
-        std::cout << "likelihood: " << likelihood << ", total_loglikelihood: " << total_loglikelihood << "\n";
         std::fill(likelihood_table[0].begin(), likelihood_table[0].end(), 0);
         std::fill(likelihood_table[1].begin(), likelihood_table[1].end(), 0);
     }
     return total_loglikelihood;
 }
 
-static void update_tree(int random_sample, TreeManip &cur_tree_tm, TreeManip &proposed_tree_tm, double &proposed_rootage, double &topology_prior_ratio, 
-    double &time_prior_ratio, double &rate_prior_ratio, double &topology_proposal_ratio, double &time_proposal_ratio, double &rate_proposal_ratio, double delta_time)
+static void update_tree(int random_sample, TreeManip &cur_tree_tm, TreeManip &proposed_tree_tm, double &proposed_rootage, double &topology_prior_ratio,
+                        double &time_prior_ratio, double &rate_prior_ratio, double &topology_proposal_ratio, double &time_proposal_ratio, double &rate_proposal_ratio, double delta_time)
 {
     switch (random_sample)
     {
@@ -270,8 +438,8 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
 
             // std::cout<<"cur_alpha: "<< cur_alpha<<"\n";
             // std::cout<<"proposed_alpha: "<< proposed_alpha<<"\n";
-            std::cout<<"cur_loglikelihood: "<< cur_loglikelihood<<"\n";
-            std::cout<<"proposed_loglikelihood: "<< proposed_loglikelihood<<"\n";
+            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+            std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
             double dnorm_on_cur_alpha = getNormalDistributionDensity(cur_alpha, proposed_alpha, STD_DEV);
             double dnorm_on_proposed_alpha = getNormalDistributionDensity(proposed_alpha, cur_alpha, STD_DEV);
             double alpha_error_proposal_ratio = exp(log(dnorm_on_cur_alpha) - log(dnorm_on_proposed_alpha));
@@ -335,8 +503,8 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             updateErrorMatrix(cur_alpha, proposed_beta);
             double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, cur_tree_manip, state_code_and_count_map, likelihood_table, leaves_likelihood, m10);
 
-            std::cout<<"cur_loglikelihood: "<< cur_loglikelihood<<"\n";
-            std::cout<<"proposed_loglikelihood: "<< proposed_loglikelihood<<"\n";
+            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+            std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
 
             double dnorm_on_cur_beta = getNormalDistributionDensity(cur_beta, proposed_beta, STD_DEV);
             double dnorm_on_proposed_beta = getNormalDistributionDensity(proposed_beta, cur_beta, STD_DEV);
@@ -388,15 +556,15 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             tree_manip_vector.push_back(cur_tree_manip);
 
             double proposed_m10 = std::abs(getNormalDistribution(cur_m10, STD_DEV_M10));
-            std::cout<<"cur_m10: "<< cur_m10<<"\n";
-            std::cout<<"proposed_m10: "<< proposed_m10<<"\n";
+            std::cout << "cur_m10: " << cur_m10 << "\n";
+            std::cout << "proposed_m10: " << proposed_m10 << "\n";
             // std::cout << "cur_tree_manip: " << cur_tree_manip.makeNewick(3) << std::endl;
 
             // proposed loglikelihood
             double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, cur_tree_manip, state_code_and_count_map, likelihood_table, leaves_likelihood, proposed_m10);
 
-            std::cout<<"cur_loglikelihood: "<< cur_loglikelihood<<"\n";
-            std::cout<<"proposed_loglikelihood: "<< proposed_loglikelihood<<"\n";
+            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+            std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
 
             double dbeta_on_proposed_m10 = getUniformDistributionDensity(proposed_m10, 0, 1);
             double dbeta_on_cur_m10 = getUniformDistributionDensity(cur_m10, 0, 1);
@@ -445,8 +613,8 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             TreeManip proposed_tree_tm;
             int random_sample = discrete_distribution(generator);
             double topology_proposal_ratio = 1.0, time_proposal_ratio = 1.0, rate_proposal_ratio = 1.0, topology_prior_ratio = 1.0, time_prior_ratio = 1.0, rate_prior_ratio = 1.0;
-            update_tree(random_sample, cur_tree_manip, proposed_tree_tm, proposed_rootage, topology_prior_ratio, time_prior_ratio, 
-                rate_prior_ratio, topology_proposal_ratio, time_proposal_ratio, rate_proposal_ratio, delta_time);
+            update_tree(random_sample, cur_tree_manip, proposed_tree_tm, proposed_rootage, topology_prior_ratio, time_prior_ratio,
+                        rate_prior_ratio, topology_proposal_ratio, time_proposal_ratio, rate_proposal_ratio, delta_time);
 
             std::cout << "cur_tree_manip: " << cur_tree_manip.makeNewick(3) << std::endl;
             std::cout << "proposed_tree_tm: " << proposed_tree_tm.makeNewick(3) << std::endl;
@@ -455,17 +623,17 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             std::cout << "tree m10: " << m10 << std::endl;
 
             // proposed loglikelihood
-            double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, proposed_tree_tm, state_code_and_count_map, likelihood_table, leaves_likelihood, m10);            
-            
-            std::cout<<"cur_loglikelihood: "<< cur_loglikelihood<<"\n";
-            std::cout<<"proposed_loglikelihood: "<< proposed_loglikelihood<<"\n";
+            double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, proposed_tree_tm, state_code_and_count_map, likelihood_table, leaves_likelihood, m10);
 
-            std::cout<<"topology_proposal_ratio: "<< topology_proposal_ratio<<"\n";
-            std::cout<<"time_proposal_ratio: "<< time_proposal_ratio<<"\n";
-            std::cout<<"rate_proposal_ratio: "<< rate_proposal_ratio<<"\n";
-            std::cout<<"topology_prior_ratio: "<< topology_prior_ratio<<"\n";
-            std::cout<<"time_prior_ratio: "<< time_prior_ratio<<"\n";
-            std::cout<<"rate_prior_ratio: "<< rate_prior_ratio<<"\n";
+            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+            std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
+
+            std::cout << "topology_proposal_ratio: " << topology_proposal_ratio << "\n";
+            std::cout << "time_proposal_ratio: " << time_proposal_ratio << "\n";
+            std::cout << "rate_proposal_ratio: " << rate_proposal_ratio << "\n";
+            std::cout << "topology_prior_ratio: " << topology_prior_ratio << "\n";
+            std::cout << "time_prior_ratio: " << time_prior_ratio << "\n";
+            std::cout << "rate_prior_ratio: " << rate_prior_ratio << "\n";
 
             double target_error_ratio = exp(proposed_loglikelihood - cur_loglikelihood) *
                                         topology_proposal_ratio * time_proposal_ratio * rate_proposal_ratio * topology_prior_ratio * time_prior_ratio * rate_prior_ratio;
@@ -555,7 +723,7 @@ int main(int argc, char *argv[])
     alpha = getUniformDistribution(0, 0.45);
     beta = getUniformDistribution(0, 0.45);
     m01 = 1, m00 = -m01, rootage = 1.045;
-    m10 = 0.1; //getUniformDistribution(0, 1.0);
+    m10 = getUniformDistribution(0, 1.0);
     m11 = -m10;
     lambda_edge = 2 * log(1.2), lambda_root = 2 * log(1.2);
 
@@ -572,7 +740,7 @@ int main(int argc, char *argv[])
     tree_manip_vector.reserve(niter);
 
     // Two values may need to generate from R
-    std::string br_tree_string = "((2:0.4994737979,3:0.4994737979):0.5293488252,((4:0.4210867618,1:0.4210867618):0.1298891809,5:0.5509759427):0.4778466805);";
+    std::string br_tree_string = "(3:0.9125,(5:0.8466827877,(1:0.01848638469,(4:0.01632424983,2:0.01632424983):0.002162134862):0.828196403):0.06581721228);";
     TreeManip br_tree;
     br_tree.buildFromNewick(br_tree_string, true, false);
     std::cout << "br_tree: " << br_tree.makeNewick(3) << std::endl;
