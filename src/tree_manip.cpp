@@ -12,11 +12,18 @@ namespace strom
         clear();
     }
 
-    TreeManip::TreeManip(Tree::SharedPtr t)
+    TreeManip::TreeManip(Tree t)
     {
         //std::cout << "Constructing a TreeManip with a supplied tree" << std::endl;
         clear();
         setTree(t);
+    }
+
+    TreeManip::TreeManip(const TreeManip &tm1)
+    {
+        clear();
+        std::string newick = tm1.makeNewick(8);
+        this->buildFromNewick(newick, true, false);
     }
 
     TreeManip::~TreeManip()
@@ -26,16 +33,15 @@ namespace strom
 
     void TreeManip::clear()
     {
-        _tree.reset();
+        _tree.clear();
     }
 
-    void TreeManip::setTree(Tree::SharedPtr t)
+    void TreeManip::setTree(Tree t)
     {
-        assert(t);
         _tree = t;
     }
 
-    Tree::SharedPtr TreeManip::getTree()
+    Tree TreeManip::getTree()
     {
         return _tree;
     }
@@ -43,7 +49,7 @@ namespace strom
     double TreeManip::calcTreeLength() const
     {
         double TL = 0.0;
-        Node *root_child = _tree->_root->_left_child;
+        Node *root_child = _tree._root->_left_child;
         while (root_child != NULL)
         {
             TL += root_child->_edge_length;
@@ -54,12 +60,12 @@ namespace strom
 
     unsigned TreeManip::countEdges() const
     {
-        return (unsigned)_tree->_preorder.size();
+        return (unsigned)_tree._preorder.size();
     }
 
     void TreeManip::scaleAllEdgeLengths(double scaler)
     {
-        for (auto nd : _tree->_preorder)
+        for (auto nd : _tree._preorder)
         {
             nd->setEdgeLength(scaler * nd->_edge_length);
         }
@@ -67,7 +73,7 @@ namespace strom
 
     void TreeManip::buildNodeNameAndNumberMap()
     {
-        for (auto nd : _tree->_preorder)
+        for (auto nd : _tree._preorder)
         {
             if (nd->_left_child == NULL)
             {
@@ -80,15 +86,15 @@ namespace strom
     void TreeManip::createTestTree()
     {
         clear();
-        _tree = Tree::SharedPtr(new Tree());
-        _tree->_nodes.resize(6);
+        _tree.clear();
+        _tree._nodes.resize(6);
 
-        Node *root_node = &_tree->_nodes[0];
-        Node *first_internal = &_tree->_nodes[1];
-        Node *second_internal = &_tree->_nodes[2];
-        Node *first_leaf = &_tree->_nodes[3];
-        Node *second_leaf = &_tree->_nodes[4];
-        Node *third_leaf = &_tree->_nodes[5];
+        Node *root_node = &_tree._nodes[0];
+        Node *first_internal = &_tree._nodes[1];
+        Node *second_internal = &_tree._nodes[2];
+        Node *first_leaf = &_tree._nodes[3];
+        Node *second_leaf = &_tree._nodes[4];
+        Node *third_leaf = &_tree._nodes[5];
 
         // Here is the structure of the tree (numbers in
         // parentheses are node numbers, other numbers
@@ -150,22 +156,22 @@ namespace strom
         third_leaf->_name = "third_leaf";
         third_leaf->_edge_length = 0.2;
 
-        _tree->_is_rooted = true;
-        _tree->_root = root_node;
-        _tree->_nleaves = 3;
+        _tree._is_rooted = true;
+        _tree._root = root_node;
+        _tree._nleaves = 3;
 
         // Note that root node is not included in _preorder
-        _tree->_preorder.push_back(first_internal);
-        _tree->_preorder.push_back(second_internal);
-        _tree->_preorder.push_back(first_leaf);
-        _tree->_preorder.push_back(second_leaf);
-        _tree->_preorder.push_back(third_leaf);
+        _tree._preorder.push_back(first_internal);
+        _tree._preorder.push_back(second_internal);
+        _tree._preorder.push_back(first_leaf);
+        _tree._preorder.push_back(second_leaf);
+        _tree._preorder.push_back(third_leaf);
 
-        _tree->_levelorder.push_back(first_internal);
-        _tree->_levelorder.push_back(second_internal);
-        _tree->_levelorder.push_back(third_leaf);
-        _tree->_levelorder.push_back(first_leaf);
-        _tree->_levelorder.push_back(second_leaf);
+        _tree._levelorder.push_back(first_internal);
+        _tree._levelorder.push_back(second_internal);
+        _tree._levelorder.push_back(third_leaf);
+        _tree._levelorder.push_back(first_leaf);
+        _tree._levelorder.push_back(second_leaf);
     }
 
     std::string TreeManip::makeNewick(unsigned precision, bool use_names) const
@@ -176,8 +182,8 @@ namespace strom
         const boost::format internal_node_format(boost::str(boost::format("):%%.%df") % precision));
         std::stack<Node *> node_stack;
 
-        Node *root_tip = (_tree->_is_rooted ? 0 : _tree->_root);
-        for (auto nd : _tree->_preorder)
+        Node *root_tip = (_tree._is_rooted ? 0 : _tree._root);
+        for (auto nd : _tree._preorder)
         {
             if (nd->_left_child)
             {
@@ -355,13 +361,13 @@ namespace strom
     void TreeManip::refreshPreorder()
     {
         // Create vector of node pointers in preorder sequence
-        _tree->_preorder.clear();
-        _tree->_preorder.reserve(_tree->_nodes.size() - 1); // _preorder does not include root node
+        _tree._preorder.clear();
+        _tree._preorder.reserve(_tree._nodes.size() - 1); // _preorder does not include root node
 
-        if (!_tree->_root)
+        if (!_tree._root)
             return;
 
-        Node *first_preorder = _tree->_root->_left_child;
+        Node *first_preorder = _tree._root->_left_child;
 
         // sanity check: first preorder node should be the only child of the root node
         assert(first_preorder->_right_sib == 0);
@@ -374,7 +380,7 @@ namespace strom
         if (nd == NULL)
             return;
 
-        _tree->_preorder.push_back(nd);
+        _tree._preorder.push_back(nd);
 
         if (nd->_left_child == NULL)
             return;
@@ -385,17 +391,17 @@ namespace strom
 
     void TreeManip::refreshLevelorder()
     {
-        if (!_tree->_root)
+        if (!_tree._root)
             return;
 
         // q is the buffer queue
         std::queue<Node *> q;
 
-        // _tree->_levelorder is the stack vector
-        _tree->_levelorder.clear();
-        _tree->_levelorder.reserve(_tree->_nodes.size() - 1);
+        // _tree._levelorder is the stack vector
+        _tree._levelorder.clear();
+        _tree._levelorder.reserve(_tree._nodes.size() - 1);
 
-        Node *nd = _tree->_root->_left_child;
+        Node *nd = _tree._root->_left_child;
 
         // sanity check: first node should be the only child of the root node
         assert(nd->_right_sib == 0);
@@ -410,7 +416,7 @@ namespace strom
             q.pop();
 
             // and push it onto the stack
-            _tree->_levelorder.push_back(nd);
+            _tree._levelorder.push_back(nd);
 
             // add all children of nd to back of queue
             Node *child = nd->_left_child;
@@ -429,11 +435,11 @@ namespace strom
 
     void TreeManip::renumberInternals()
     {
-        assert(_tree->_preorder.size() > 0);
+        assert(_tree._preorder.size() > 0);
 
         // Renumber internal nodes in postorder sequence
-        unsigned curr_internal = _tree->_nleaves;
-        for (auto nd : boost::adaptors::reverse(_tree->_preorder))
+        unsigned curr_internal = _tree._nleaves;
+        for (auto nd : boost::adaptors::reverse(_tree._preorder))
         {
             if (nd->_left_child)
             {
@@ -442,17 +448,17 @@ namespace strom
             }
         }
 
-        // Root node is not included in _tree->_preorder, so if the root node
+        // Root node is not included in _tree._preorder, so if the root node
         // is an internal node we need to number it here
-        if (_tree->_is_rooted)
-            _tree->_root->_number = curr_internal++;
+        if (_tree._is_rooted)
+            _tree._root->_number = curr_internal++;
 
-        _tree->_ninternals = curr_internal - _tree->_nleaves;
+        _tree._ninternals = curr_internal - _tree._nleaves;
 
         // If the tree has polytomies, then there are Node objects stored in
-        // the _tree->_nodes vector that have not yet been numbered. These can
+        // the _tree._nodes vector that have not yet been numbered. These can
         // be identified because their _number is currently equal to -1.
-        for (auto &nd : _tree->_nodes)
+        for (auto &nd : _tree._nodes)
         {
             if (nd._number == -1)
                 nd._number = curr_internal++;
@@ -501,7 +507,7 @@ namespace strom
     {
         // Locate node having _number equal to node_number
         Node *nd = 0;
-        for (auto &curr : _tree->_nodes)
+        for (auto &curr : _tree._nodes)
         {
             if (curr._number == node_number)
             {
@@ -513,7 +519,7 @@ namespace strom
         if (!nd)
             throw XStrom(boost::str(boost::format("no node found with number equal to %d") % node_number));
 
-        if (nd != _tree->_root)
+        if (nd != _tree._root)
         {
             if (nd->_left_child)
                 throw XStrom(boost::str(boost::format("cannot currently root trees at internal nodes (e.g. node %d)") % nd->_number));
@@ -581,7 +587,7 @@ namespace strom
             prev_edgelen = tmp_edgelen;
         }
         prospective_root->setEdgeLength(0.0);
-        _tree->_root = prospective_root;
+        _tree._root = prospective_root;
         refreshPreorder();
         refreshLevelorder();
     }
@@ -590,9 +596,9 @@ namespace strom
     {
         std::string newick = original_tm.makeNewick(8);
         this->buildFromNewick(newick, true, false);
-        _tree->buildNodesHeightInfo();
+        _tree.buildNodesHeightInfo();
 
-        Node::PtrVector internal_nodes = _tree->getAllInternals();
+        Node::PtrVector internal_nodes = _tree.getAllInternals();
         std::random_shuffle(internal_nodes.begin(), internal_nodes.end());
         Node *grand_parent = internal_nodes.front();
         while (grand_parent->_left_child->_left_child == NULL && grand_parent->getRightChild()->_left_child == NULL)
@@ -615,23 +621,23 @@ namespace strom
         Node *child = child_nodes[0];
 
         exchangeNodes(child, uncle, parent, grand_parent);
-        _tree->updateNodesHeightInfo();
+        _tree.updateNodesHeightInfo();
     }
 
     void TreeManip::wideExchangeFrom(TreeManip &original_tm)
     {
         std::string newick = original_tm.makeNewick(8);
         this->buildFromNewick(newick, true, false);
-        _tree->buildNodesHeightInfo();
+        _tree.buildNodesHeightInfo();
 
-        Node::PtrVector all_nodes = _tree->getPreOrder();
+        Node::PtrVector all_nodes = _tree.getPreOrder();
         all_nodes.erase(all_nodes.begin());
 
         while (true)
         {
             std::random_shuffle(all_nodes.begin(), all_nodes.end());
             Node *i = all_nodes.front();
-            Node *root_node = _tree->_root->_left_child;
+            Node *root_node = _tree._root->_left_child;
 
             Node *j = i;
             while (j == i || j == root_node)
@@ -647,7 +653,7 @@ namespace strom
             {
                 //std::cout<<"i " <<i->_number <<", j " <<j->_number <<", ip " <<ip->_number <<", jp " <<jp->_number <<"\n";
                 exchangeNodes(i, j, ip, jp);
-                _tree->updateNodesHeightInfo();
+                _tree.updateNodesHeightInfo();
                 return;
             }
         }
@@ -657,14 +663,14 @@ namespace strom
     {
         std::string newick = original_tm.makeNewick(8);
         this->buildFromNewick(newick, true, false);
-        _tree->buildNodesHeightInfo();
+        _tree.buildNodesHeightInfo();
 
-        Node::PtrVector all_nodes = _tree->getPreOrder();
+        Node::PtrVector all_nodes = _tree.getPreOrder();
         all_nodes.erase(all_nodes.begin());
 
         while (true)
         {
-            Node *root_node = _tree->_root->_left_child;
+            Node *root_node = _tree._root->_left_child;
             std::random_shuffle(all_nodes.begin(), all_nodes.end());
             Node *i = all_nodes.front();
             while (i == root_node || i->_parent == root_node)
@@ -712,7 +718,7 @@ namespace strom
                 ib->setEdgeLength(ib->_height - igp_height);
                 ip->setEdgeLength(ip->_height - jp_height);
                 j->setEdgeLength(j->_height - ip_height);
-                _tree->updateNodesHeightInfo();
+                _tree.updateNodesHeightInfo();
                 
                 return;
             }
@@ -738,7 +744,7 @@ namespace strom
         //adjust edge length
         child->setEdgeLength(child->_height - grand_parent_height);
         uncle->setEdgeLength(uncle->_height - parent_height);
-        _tree->updateNodesHeightInfo();
+        _tree.updateNodesHeightInfo();
     }
 
     void TreeManip::replace(Node *parent, Node *child, Node *replacement)
@@ -790,31 +796,31 @@ namespace strom
 
     void TreeManip::totalLengthChange(double &proposed_rootage, double &rate_prior_ratio, double &rate_proposal_ratio)
     {
-        _tree->updateNodesHeightInfo();
+        _tree.updateNodesHeightInfo();
 
         double edge_u = getUniformDistribution(0.0, 1.0);
         double edge_m = exp(_lambda_edge * (edge_u - 0.5));
-        double cur_rootage = _tree->getTreeMaxHeight();
+        double cur_rootage = _tree.getTreeMaxHeight();
         // std::cout<<"_lambda_edge " << _lambda_edge <<"\n";
         // std::cout<<"edge_u " << edge_u <<"\n";
         // std::cout<<"edge_m " << edge_m <<"\n";
 
         scaleAllEdgeLengths(edge_m);
-        _tree->updateNodesHeightInfo();
+        _tree.updateNodesHeightInfo();
         proposed_rootage = cur_rootage * edge_m;
         // std::cout<<"proposed_rootage " << proposed_rootage <<"\n";
         // std::cout<<"cur_rootage " << cur_rootage <<"\n";
 
-        double proposed_rootage_dnorm = getNormalDistributionDensity(proposed_rootage, Tmax, 0.2);
-        double cur_rootage_dnorm = getNormalDistributionDensity(cur_rootage, Tmax, 0.2);
+        double proposed_rootage_dnorm = getNormalDistributionDensity(proposed_rootage, 0.9125, 0.2);
+        double cur_rootage_dnorm = getNormalDistributionDensity(cur_rootage, 0.9125, 0.2);
         rate_prior_ratio = proposed_rootage_dnorm / cur_rootage_dnorm;
-        rate_proposal_ratio = pow(edge_m, (_tree->numLeaves() - 1));
+        rate_proposal_ratio = pow(edge_m, (_tree.numLeaves() - 1));
     }
 
     void TreeManip::randomLengthChange(double delta_time, double &time_proposal_ratio)
     {
-        _tree->updateNodesHeightInfo();
-        Node::PtrVector internal_nodes = _tree->getAllInternals();
+        _tree.updateNodesHeightInfo();
+        Node::PtrVector internal_nodes = _tree.getAllInternals();
         std::random_shuffle(internal_nodes.begin(), internal_nodes.end());
         Node *internal = internal_nodes.front();
         changeInternalNode(internal, delta_time, time_proposal_ratio);        
@@ -822,8 +828,8 @@ namespace strom
 
     void TreeManip::allInternalLengthChange(double delta_time, double &time_proposal_ratio)
     {
-        _tree->updateNodesHeightInfo();
-        Node::PtrVector internal_nodes = _tree->getAllInternals();
+        _tree.updateNodesHeightInfo();
+        Node::PtrVector internal_nodes = _tree.getAllInternals();
         for (auto nd : internal_nodes) {
             changeInternalNode(nd, delta_time, time_proposal_ratio);        
         }
@@ -855,7 +861,7 @@ namespace strom
         {
             proposed_child_edge_length = internal->_left_child->_edge_length;
         }
-        _tree->updateNodesHeightInfo();
+        _tree.updateNodesHeightInfo();
 
         double cur_on_proposed_normal_density = getNormalDistributionDensity(parent_edge_length, proposed_edge_length,
                                                                              std::min(proposed_edge_length, proposed_child_edge_length) * delta_time / 2.0);
@@ -865,7 +871,7 @@ namespace strom
 
     void TreeManip::addTToName() 
     {
-        for (auto nd : _tree->_preorder)
+        for (auto nd : _tree._preorder)
         {            
             if (nd->_left_child == NULL) 
             {
@@ -877,8 +883,8 @@ namespace strom
 
     void TreeManip::buildFromNewick(const std::string newick, bool rooted, bool allow_polytomies)
     {
-        _tree.reset(new Tree());
-        _tree->_is_rooted = rooted;
+        _tree.clear();
+        _tree._is_rooted = rooted;
 
         std::set<unsigned> used; // used to ensure that no two leaf nodes have the same number
         unsigned curr_leaf = 0;
@@ -890,24 +896,24 @@ namespace strom
         stripOutNexusComments(commentless_newick);
 
         // Resize the _nodes vector
-        _tree->_nleaves = countNewickLeaves(commentless_newick);
-        if (_tree->_nleaves < 4)
+        _tree._nleaves = countNewickLeaves(commentless_newick);
+        if (_tree._nleaves < 4)
             throw XStrom("Expecting newick tree description to have at least 4 leaves");
-        unsigned max_nodes = 2 * _tree->_nleaves - (rooted ? 0 : 2);
-        _tree->_nodes.resize(max_nodes);
-        for (auto &nd : _tree->_nodes)
+        unsigned max_nodes = 2 * _tree._nleaves - (rooted ? 0 : 2);
+        _tree._nodes.resize(max_nodes);
+        for (auto &nd : _tree._nodes)
             nd._number = -1;
 
         try
         {
             // Root node
-            Node *nd = &_tree->_nodes[curr_node_index];
-            _tree->_root = nd;
+            Node *nd = &_tree._nodes[curr_node_index];
+            _tree._root = nd;
 
-            if (_tree->_is_rooted)
+            if (_tree._is_rooted)
             {
-                nd = &_tree->_nodes[++curr_node_index];
-                nd->_parent = &_tree->_nodes[curr_node_index - 1];
+                nd = &_tree._nodes[++curr_node_index];
+                nd->_parent = &_tree._nodes[curr_node_index - 1];
                 nd->_parent->_left_child = nd;
             }
 
@@ -1061,9 +1067,9 @@ namespace strom
 
                     // Create the sibling
                     curr_node_index++;
-                    if (curr_node_index == _tree->_nodes.size())
-                        throw XStrom(boost::str(boost::format("Too many nodes specified by tree description (%d nodes allocated for %d leaves)") % _tree->_nodes.size() % _tree->_nleaves));
-                    nd->_right_sib = &_tree->_nodes[curr_node_index];
+                    if (curr_node_index == _tree._nodes.size())
+                        throw XStrom(boost::str(boost::format("Too many nodes specified by tree description (%d nodes allocated for %d leaves)") % _tree._nodes.size() % _tree._nleaves));
+                    nd->_right_sib = &_tree._nodes[curr_node_index];
                     nd->_right_sib->_parent = nd->_parent;
                     nd = nd->_right_sib;
                     previous = Prev_Tok_Comma;
@@ -1077,9 +1083,9 @@ namespace strom
                     // Create new node above and to the left of the current node
                     assert(!nd->_left_child);
                     curr_node_index++;
-                    if (curr_node_index == _tree->_nodes.size())
-                        throw XStrom(boost::str(boost::format("malformed tree description (more than %d nodes specified)") % _tree->_nodes.size()));
-                    nd->_left_child = &_tree->_nodes[curr_node_index];
+                    if (curr_node_index == _tree._nodes.size())
+                        throw XStrom(boost::str(boost::format("malformed tree description (more than %d nodes specified)") % _tree._nodes.size()));
+                    nd->_left_child = &_tree._nodes[curr_node_index];
                     nd->_left_child->_parent = nd;
                     nd = nd->_left_child;
                     previous = Prev_Tok_LParen;
@@ -1130,7 +1136,7 @@ namespace strom
             if (inside_quoted_name)
                 throw XStrom(boost::str(boost::format("Expecting single quote to mark the end of node name at position %d in tree description") % node_name_position));
 
-            if (!_tree->_is_rooted)
+            if (!_tree._is_rooted)
             {
                 // Root at leaf whose _number = 0
                 rerootAtNodeNumber(0);

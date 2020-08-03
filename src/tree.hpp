@@ -38,9 +38,6 @@ namespace strom
         Node::PtrVector _levelorder;
         Node::PtrVector _all_internals;
         Node::Vector _nodes;
-
-    public:
-        typedef std::shared_ptr<Tree> SharedPtr;
     };
 
 } // namespace strom

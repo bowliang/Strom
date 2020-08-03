@@ -17,11 +17,12 @@ namespace strom
     {
     public:
         TreeManip();
-        TreeManip(Tree::SharedPtr t);
+        TreeManip(Tree t);
+        TreeManip(const TreeManip &tm1);
         ~TreeManip();
 
-        void setTree(Tree::SharedPtr t);
-        Tree::SharedPtr getTree();
+        void setTree(Tree t);
+        Tree getTree();
 
         double calcTreeLength() const;
         unsigned countEdges() const;
@@ -47,8 +48,14 @@ namespace strom
 
         void clear();
 
+        int getNumLeaves() { return _tree.numLeaves(); };
+        int getNumNodes() { return _tree.numNodes(); };
+        Node *getRootNode() { return _tree.getRoot(); };
+        void updateNodesHeightInfo() { _tree.updateNodesHeightInfo(); };
+        double getTreeMaxHeight() { return _tree.getTreeMaxHeight(); };
+
     private:
-        Tree::SharedPtr _tree;
+        Tree _tree;
         std::map<std::string, int> _node_name_and_number_map;
         double _lambda_edge = 2 * log(1.2);
 
@@ -68,9 +75,6 @@ namespace strom
         void pruneChild(Node* parent, Node* child);
         void graftChild(Node* parent, Node* child);
         void changeInternalNode(Node* internal, double delta_time, double &time_proposal_ratio);
-
-    public:
-        typedef std::shared_ptr<TreeManip> SharedPtr;
     };
 
 } // namespace strom
