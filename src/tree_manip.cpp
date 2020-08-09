@@ -806,7 +806,7 @@ namespace strom
         child->_parent = parent;
     }
 
-    void TreeManip::totalLengthChange(double &proposed_rootage, double &rate_prior_ratio, double &rate_proposal_ratio)
+    void TreeManip::totalLengthChange(double &proposed_rootage, double &rate_prior_ratio, double &rate_proposal_ratio, double mean, double stddev)
     {
         _tree.updateNodesHeightInfo();
 
@@ -823,8 +823,8 @@ namespace strom
         // std::cout<<"proposed_rootage " << proposed_rootage <<"\n";
         // std::cout<<"cur_rootage " << cur_rootage <<"\n";
 
-        double proposed_rootage_dnorm = getNormalDistributionDensity(proposed_rootage, 0.9125, 0.2);
-        double cur_rootage_dnorm = getNormalDistributionDensity(cur_rootage, 0.9125, 0.2);
+        double proposed_rootage_dnorm = getNormalDistributionDensity(proposed_rootage, mean, stddev);
+        double cur_rootage_dnorm = getNormalDistributionDensity(cur_rootage, mean, stddev);
         rate_prior_ratio = proposed_rootage_dnorm / cur_rootage_dnorm;
         rate_proposal_ratio = pow(edge_m, (_tree.numLeaves() - 1));
     }

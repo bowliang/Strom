@@ -42,7 +42,7 @@ namespace strom
         void narrowExchangeFrom(TreeManip &original_tm);
         void wideExchangeFrom(TreeManip &original_tm);
         void FNPRExchangeFrom(TreeManip &original_tm);
-        void totalLengthChange(double &proposed_rootage, double &rate_prior_ratio, double &rate_proposal_ratio);
+        void totalLengthChange(double &proposed_rootage, double &rate_prior_ratio, double &rate_proposal_ratio, double mean, double stddev);
         void randomLengthChange(double delta_time, double &time_proposal_ratio);
         void allInternalLengthChange(double delta_time, double &time_proposal_ratio);
 

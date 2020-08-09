@@ -18,8 +18,7 @@ const double Node::_smallest_edge_length = 1.0e-12;
 double substitution_matrix[2][2], error_matrix[2][2];
 double const STD_DEV = 0.005;
 double const STD_DEV_M10 = 0.02;
-double const BD_ALPHA = 1000 * 0.01;
-double const BD_BETA = 1000 * (1 - 0.01);
+double bd_alpha_alpha, bd_beta_alpha, bd_alpha_beta, bd_beta_beta, rootage_mean, rootage_stddev;
 std::discrete_distribution<int> discrete_distribution{1, 1, 2, 2, 2, 1};
 
 void mapObservedStateToRightLabel(TreeManip &start_tree_tm, std::vector<int> &observed_state, std::vector<int> &mapped_observed_state, std::vector<std::string> &data_label)
@@ -333,7 +332,7 @@ static void update_tree(int random_sample, TreeManip &cur_tree_tm, TreeManip &pr
     case 3:
         std::cout << "Total length change.\n";
         proposed_tree_tm.buildFromNewick(cur_tree_tm.makeNewick(8), true, false);
-        proposed_tree_tm.totalLengthChange(proposed_rootage, rate_prior_ratio, rate_proposal_ratio);
+        proposed_tree_tm.totalLengthChange(proposed_rootage, rate_prior_ratio, rate_proposal_ratio, rootage_mean, rootage_stddev);
         break;
     case 4:
         std::cout << "Random length change.\n";
@@ -444,8 +443,8 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             double dnorm_on_proposed_alpha = getNormalDistributionDensity(proposed_alpha, cur_alpha, STD_DEV);
             double alpha_error_proposal_ratio = exp(log(dnorm_on_cur_alpha) - log(dnorm_on_proposed_alpha));
 
-            double dbeta_on_proposed_alpha = getBetaDistributionDensity(proposed_alpha, BD_ALPHA, BD_BETA);
-            double dbeta_on_cur_alpha = getBetaDistributionDensity(cur_alpha, BD_ALPHA, BD_BETA);
+            double dbeta_on_proposed_alpha = getBetaDistributionDensity(proposed_alpha, bd_alpha_alpha, bd_beta_alpha);
+            double dbeta_on_cur_alpha = getBetaDistributionDensity(cur_alpha, bd_alpha_alpha, bd_beta_alpha);
             double alpha_error_Prior_ratio = exp(log(dbeta_on_proposed_alpha) - log(dbeta_on_cur_alpha));
 
             double target_error_ratio = exp(proposed_loglikelihood - cur_loglikelihood) * alpha_error_proposal_ratio * alpha_error_Prior_ratio;
@@ -510,8 +509,8 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             double dnorm_on_proposed_beta = getNormalDistributionDensity(proposed_beta, cur_beta, STD_DEV);
             double beta_error_proposal_ratio = exp(log(dnorm_on_cur_beta) - log(dnorm_on_proposed_beta));
 
-            double dbeta_on_proposed_beta = getBetaDistributionDensity(proposed_beta, BD_ALPHA, BD_BETA);
-            double dbeta_on_cur_beta = getBetaDistributionDensity(cur_beta, BD_ALPHA, BD_BETA);
+            double dbeta_on_proposed_beta = getBetaDistributionDensity(proposed_beta, bd_alpha_beta, bd_beta_beta);
+            double dbeta_on_cur_beta = getBetaDistributionDensity(cur_beta, bd_alpha_beta, bd_beta_beta);
             double beta_error_Prior_ratio = exp(log(dbeta_on_proposed_beta) - log(dbeta_on_cur_beta));
 
             double target_error_ratio = exp(proposed_loglikelihood - cur_loglikelihood) * beta_error_proposal_ratio * beta_error_Prior_ratio;
@@ -673,17 +672,51 @@ int main(int argc, char *argv[])
     // 0. read arguments
     // Read the arguments passing from command line and validate
     int opt, niter = 1000000;
-    std::string output_filename;
-    while ((opt = getopt(argc, argv, "n:f:")) != -1)
+    std::string output_filename, br_tree_string, tree_data_filename;
+
+    while ((opt = getopt(argc, argv, "n:o:t:a:b:c:d:f:m:s:")) != -1)
     {
         switch (opt)
         {
         case 'n':
             niter = atoi(optarg);
+            std::cout << "num iter: " << niter << "\n";
             break;
-        case 'f':
+        case 'o':
             output_filename = optarg;
             std::cout << "output_filename: " << output_filename << "\n";
+            break;
+        case 't':
+            br_tree_string = optarg;
+            std::cout << "start tree: " << br_tree_string << "\n";
+            break;
+        case 'a':
+            bd_alpha_alpha = atof(optarg);
+            std::cout << "bd_alpha for alpha: " << bd_alpha_alpha << "\n";
+            break;
+        case 'b':
+            bd_beta_alpha = atof(optarg);
+            std::cout << "bd_beta for alpha: " << bd_beta_alpha << "\n";
+            break;
+        case 'c':
+            bd_alpha_beta = atof(optarg);
+            std::cout << "bd_alpha for beta: " << bd_alpha_beta << "\n";
+            break;
+        case 'd':
+            bd_beta_beta = atof(optarg);
+            std::cout << "bd_beta for beta: " << bd_beta_beta << "\n";
+            break;
+        case 'f':
+            tree_data_filename = optarg;
+            std::cout << "tree_data_filename: " << tree_data_filename << "\n";
+            break;
+        case 'm':
+            rootage_mean = atof(optarg);
+            std::cout << "rootage mean: " << rootage_mean << "\n";
+            break;
+        case 's':
+            rootage_stddev = atof(optarg);
+            std::cout << "rootage stddev: " << rootage_stddev << "\n";
             break;
         default:
             fprintf(stderr, "Wrong arguments!\n");
@@ -691,18 +724,11 @@ int main(int argc, char *argv[])
         }
     }
 
-    // 1. Start with input random tree file and input observed data
-    std::string true_tree_filename = "./input/tree/RandomTreeScale_3.tre";
-    std::string true_time_tree_filename = "./input/tree/RandomTree_3.tre";
-    std::string tree_data_filename = "./Long_Obs_binary_obs_0_1_tip_mu_005_alpha_001_beta_001_matrix_2.csv";
+    std::cout << "done parsing cmd line \n";
 
-    // 2. Build tree and get tree info
-    TreeManip true_tree_tm, true_time_tree_tm;
-    true_tree_tm.buildFromNewickFile(true_tree_filename);
-    true_time_tree_tm.buildFromNewickFile(true_time_tree_filename);
-
-    std::cout << "true_tree_tm: " << true_tree_tm.makeNewick(3) << std::endl;
-    std::cout << "true_time_tree_tm: " << true_time_tree_tm.makeNewick(3) << std::endl;
+    TreeManip br_tree;
+    br_tree.buildFromNewick(br_tree_string, true, false);
+    std::cout << "br_tree: " << br_tree.makeNewick(3) << std::endl;
 
     std::vector<std::string> data_label;
     std::vector<std::vector<int>> tree_data_original;
@@ -740,10 +766,10 @@ int main(int argc, char *argv[])
     tree_manip_vector.reserve(niter);
 
     // Two values may need to generate from R
-    std::string br_tree_string = "(3:0.9125,(5:0.8466827877,(1:0.01848638469,(4:0.01632424983,2:0.01632424983):0.002162134862):0.828196403):0.06581721228);";
-    TreeManip br_tree;
-    br_tree.buildFromNewick(br_tree_string, true, false);
-    std::cout << "br_tree: " << br_tree.makeNewick(3) << std::endl;
+    //std::string br_tree_string = "(3:0.9125,(5:0.8466827877,(1:0.01848638469,(4:0.01632424983,2:0.01632424983):0.002162134862):0.828196403):0.06581721228);";
+    // TreeManip br_tree;
+    // br_tree.buildFromNewick(br_tree_string, true, false);
+    // std::cout << "br_tree: " << br_tree.makeNewick(3) << std::endl;
 
     //br_tree.scaleAllEdgeLengths(Tmax);
     std::cout << "br_tree scaled: " << br_tree.makeNewick(3) << std::endl;
