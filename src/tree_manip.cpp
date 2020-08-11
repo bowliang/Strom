@@ -30,6 +30,7 @@ namespace strom
 
     TreeManip::~TreeManip()
     {
+        clear();
         //std::cout << "Destroying a TreeManip" << std::endl;
     }
 
@@ -87,11 +88,6 @@ namespace strom
 
     int TreeManip::getNodeNumberByName(std::string name)
     {
-        // potential issue when tip number larger than 10
-        if (name.length() > 1)
-        {
-            name = name.substr(0,1); 
-        }
         return _node_name_and_number_map[name];
     };
 
@@ -742,8 +738,8 @@ namespace strom
         double parent_height = parent->_height;
         double grand_parent_height = grand_parent->_height;
 
-        std::cout << "parent_height " << parent_height << "\n";
-        std::cout << "grand_parent_height " << grand_parent_height << "\n";
+        // std::cout << "parent_height " << parent_height << "\n";
+        // std::cout << "grand_parent_height " << grand_parent_height << "\n";
         // std::cout<<"child_length " <<child_length <<"\n";
 
         replace(parent, child, uncle);

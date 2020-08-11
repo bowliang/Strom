@@ -4,13 +4,11 @@ namespace strom
 {
     Node::Node()
     {
-        //std::cout << "Creating Node object" << std::endl;
         clear();
     }
 
     Node::~Node()
     {
-        //std::cout << "Destroying Node object" << std::endl;
     }
 
     void Node::clear()

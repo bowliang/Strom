@@ -20,6 +20,7 @@ double const STD_DEV = 0.005;
 double const STD_DEV_M10 = 0.02;
 double bd_alpha_alpha, bd_beta_alpha, bd_alpha_beta, bd_beta_beta, rootage_mean, rootage_stddev;
 std::discrete_distribution<int> discrete_distribution{1, 1, 2, 2, 2, 1};
+bool verbose = false;
 
 void mapObservedStateToRightLabel(TreeManip &start_tree_tm, std::vector<int> &observed_state, std::vector<int> &mapped_observed_state, std::vector<std::string> &data_label)
 {
@@ -42,6 +43,8 @@ void readObservedDataFromCSVFile(const int num_lines, const std::string tree_dat
     // erase " and "t" from data
     label.erase(std::remove(label.begin(), label.end(), '"'), label.end());
     label.erase(std::remove(label.begin(), label.end(), 't'), label.end());
+    label.erase(std::remove(label.begin(), label.end(), '\r'), label.end());
+    label.erase(std::remove(label.begin(), label.end(), '\n'), label.end());
 
     // get label
     std::string delimiter = ",";
@@ -79,7 +82,7 @@ void readObservedDataFromCSVFile(const int num_lines, const std::string tree_dat
 }
 
 void outputToCSVFile(const std::string output_filename, std::vector<double> &alpha_vector, std::vector<double> &beta_vector, std::vector<double> &m10_vector,
-                            std::vector<double> &rootage_vector, std::vector<double> &loglikelihood_vector, std::vector<TreeManip> &tree_manip_vector)
+                            std::vector<double> &rootage_vector, std::vector<double> &loglikelihood_vector, std::vector<std::string> &tree_string_vector)
 {
     std::ofstream myfile;
     myfile.open(output_filename + ".csv");
@@ -96,10 +99,9 @@ void outputToCSVFile(const std::string output_filename, std::vector<double> &alp
     myfile.close();
 
     myfile.open(output_filename + "_trees.txt");
-    for (int i = 0; i < tree_manip_vector.size(); i++)
+    for (int i = 0; i < tree_string_vector.size(); i++)
     {
-        tree_manip_vector[i].addTToName();
-        myfile << tree_manip_vector[i].makeNewick(3, true) << ";\n";
+        myfile << tree_string_vector[i];
     }
     myfile.close();
 }
@@ -357,7 +359,7 @@ static void update_tree(int random_sample, TreeManip &cur_tree_tm, TreeManip &pr
 }
 
 void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, std::vector<std::string> &data_label, TreeManip &start_tree_tm, int niter, std::vector<double> &alpha_vector, std::vector<double> &beta_vector,
-                             std::vector<double> &m10_vector, std::vector<double> &rootage_vector, std::vector<double> &loglikelihood_vector, std::vector<TreeManip> &tree_manip_vector)
+                             std::vector<double> &m10_vector, std::vector<double> &rootage_vector, std::vector<double> &loglikelihood_vector, std::vector<std::string> &tree_string_vector)
 {
     // initialize all values
     int num_tips = start_tree_tm.getNumLeaves();
@@ -375,7 +377,7 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
     {
         it.resize(num_nodes);
     }
-    std::cout << "start_tree_tm: " << start_tree_tm.makeNewick(3) << std::endl;
+    std::cout << "start_tree_tm: " << start_tree_tm.makeNewick(8) << std::endl;
 
     // build counts table for all possible observed data
     std::map<int, int> state_code_and_count_map;
@@ -391,7 +393,15 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
     std::cout << "total_loglikelihood: " << total_loglikelihood << "\n";
 
     // initialize vectors for iterations
-    tree_manip_vector.push_back(start_tree_tm);
+    TreeManip start_tree_tm_copy, cur_tree_manip;
+    start_tree_tm_copy.buildFromNewick(start_tree_tm.makeNewick(8), true, false);
+    start_tree_tm_copy.updateNodesHeightInfo();
+    start_tree_tm_copy.buildNodeNameAndNumberMap();
+    cur_tree_manip.buildFromNewick(start_tree_tm.makeNewick(8), true, false);
+    cur_tree_manip.updateNodesHeightInfo();
+    cur_tree_manip.buildNodeNameAndNumberMap();
+    start_tree_tm_copy.addTToName();
+    tree_string_vector.push_back(start_tree_tm_copy.makeNewick(8, true) + ";\n");
     loglikelihood_vector.reserve(niter);
     loglikelihood_vector.push_back(total_loglikelihood);
     double pi_error_alpha = 0.1, pi_error_beta = 0.2, pi_mutation_M10 = 0.3, delta_time = 0.2;
@@ -405,7 +415,6 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
         {
             std::cout << "update alpha.\n";
 
-            TreeManip cur_tree_manip = tree_manip_vector[i - 1];
             double cur_alpha = alpha_vector[i - 1];
             double cur_beta = beta_vector[i - 1];
             double cur_m10 = m10_vector[i - 1];
@@ -414,11 +423,15 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             updateErrorMatrix(cur_alpha, cur_beta);
             m10 = cur_m10;
 
-            std::cout << "initial tree before update alpha: " << cur_tree_manip.makeNewick(3) << "\n";
+            if (verbose)
+                std::cout << "initial tree before update alpha: " << cur_tree_manip.makeNewick(8) << "\n";
 
             rootage_vector.push_back(cur_rootage);
             m10_vector.push_back(cur_m10);
-            tree_manip_vector.push_back(cur_tree_manip);
+            TreeManip cur_tree_manip_copy;
+            cur_tree_manip_copy.buildFromNewick(cur_tree_manip.makeNewick(8), true, false);
+            cur_tree_manip_copy.addTToName();
+            tree_string_vector.push_back(cur_tree_manip_copy.makeNewick(8, true) + ";\n");
 
             double proposed_alpha = getNormalDistribution(cur_alpha, STD_DEV);
             // adjust it between (0, 1)
@@ -437,8 +450,10 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
 
             // std::cout<<"cur_alpha: "<< cur_alpha<<"\n";
             // std::cout<<"proposed_alpha: "<< proposed_alpha<<"\n";
-            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
-            std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
+            if (verbose) {
+                std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+                std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
+            }
             double dnorm_on_cur_alpha = getNormalDistributionDensity(cur_alpha, proposed_alpha, STD_DEV);
             double dnorm_on_proposed_alpha = getNormalDistributionDensity(proposed_alpha, cur_alpha, STD_DEV);
             double alpha_error_proposal_ratio = exp(log(dnorm_on_cur_alpha) - log(dnorm_on_proposed_alpha));
@@ -453,16 +468,20 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             double r_error_ratio = getUniformDistribution(0, 1);
             if (r_error_ratio < target_error_ratio)
             {
-                std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
-                std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
+                if (verbose) {
+                    std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
+                    std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
+                }
                 alpha_vector.push_back(proposed_alpha);
                 beta_vector.push_back(cur_beta);
                 loglikelihood_vector.push_back(proposed_loglikelihood);
             }
             else
             {
-                std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
-                std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
+                if (verbose) {
+                    std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
+                    std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
+                }
                 alpha_vector.push_back(cur_alpha);
                 beta_vector.push_back(cur_beta);
                 loglikelihood_vector.push_back(cur_loglikelihood);
@@ -472,7 +491,6 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
         {
             std::cout << "update beta.\n";
 
-            TreeManip cur_tree_manip = tree_manip_vector[i - 1];
             double cur_alpha = alpha_vector[i - 1];
             double cur_beta = beta_vector[i - 1];
             double cur_m10 = m10_vector[i - 1];
@@ -481,11 +499,15 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             updateErrorMatrix(cur_alpha, cur_beta);
             m10 = cur_m10;
 
-            std::cout << "initial tree before update beta: " << cur_tree_manip.makeNewick(3) << "\n";
+            if (verbose)
+                std::cout << "initial tree before update beta: " << cur_tree_manip.makeNewick(8) << "\n";
 
             rootage_vector.push_back(cur_rootage);
             m10_vector.push_back(cur_m10);
-            tree_manip_vector.push_back(cur_tree_manip);
+            TreeManip cur_tree_manip_copy;
+            cur_tree_manip_copy.buildFromNewick(cur_tree_manip.makeNewick(8), true, false);
+            cur_tree_manip_copy.addTToName();
+            tree_string_vector.push_back(cur_tree_manip_copy.makeNewick(8, true) + ";\n");
 
             double proposed_beta = getNormalDistribution(cur_beta, STD_DEV);
             // adjust it between (0, 1)
@@ -498,20 +520,39 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
                 proposed_beta = -proposed_beta;
             }
 
+            if (verbose) {
+                std::cout << "cur_beta: " << cur_beta << "\n";
+                std::cout << "proposed_beta: " << proposed_beta << "\n";
+            }
+
             // proposed loglikelihood
             updateErrorMatrix(cur_alpha, proposed_beta);
             double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, cur_tree_manip, state_code_and_count_map, likelihood_table, leaves_likelihood, m10);
 
-            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
-            std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
+            if (verbose) {
+                std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+                std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
+            }            
 
             double dnorm_on_cur_beta = getNormalDistributionDensity(cur_beta, proposed_beta, STD_DEV);
             double dnorm_on_proposed_beta = getNormalDistributionDensity(proposed_beta, cur_beta, STD_DEV);
             double beta_error_proposal_ratio = exp(log(dnorm_on_cur_beta) - log(dnorm_on_proposed_beta));
 
+            if (verbose){
+                std::cout << "dnorm_on_cur_beta: " << dnorm_on_cur_beta << "\n";
+                std::cout << "dnorm_on_proposed_beta: " << dnorm_on_proposed_beta << "\n";
+                std::cout << "beta_error_proposal_ratio: " << beta_error_proposal_ratio << "\n";
+            }
+
             double dbeta_on_proposed_beta = getBetaDistributionDensity(proposed_beta, bd_alpha_beta, bd_beta_beta);
             double dbeta_on_cur_beta = getBetaDistributionDensity(cur_beta, bd_alpha_beta, bd_beta_beta);
             double beta_error_Prior_ratio = exp(log(dbeta_on_proposed_beta) - log(dbeta_on_cur_beta));
+
+            if (verbose){
+                std::cout << "dbeta_on_proposed_beta: " << dbeta_on_proposed_beta << "\n";
+                std::cout << "dbeta_on_cur_beta: " << dbeta_on_cur_beta << "\n";
+                std::cout << "beta_error_Prior_ratio: " << beta_error_Prior_ratio << "\n";
+            }
 
             double target_error_ratio = exp(proposed_loglikelihood - cur_loglikelihood) * beta_error_proposal_ratio * beta_error_Prior_ratio;
             target_error_ratio = adjustInfinity(target_error_ratio);
@@ -519,16 +560,20 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             double r_error_ratio = getUniformDistribution(0, 1);
             if (r_error_ratio < target_error_ratio)
             {
-                std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
-                std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
+                if (verbose) {
+                    std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
+                    std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
+                }
                 alpha_vector.push_back(cur_alpha);
                 beta_vector.push_back(proposed_beta);
                 loglikelihood_vector.push_back(proposed_loglikelihood);
             }
             else
             {
-                std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
-                std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
+                if (verbose) {
+                    std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
+                    std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
+                }
                 alpha_vector.push_back(cur_alpha);
                 beta_vector.push_back(cur_beta);
                 loglikelihood_vector.push_back(cur_loglikelihood);
@@ -538,7 +583,6 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
         {
             std::cout << "update M10.\n";
 
-            TreeManip cur_tree_manip = tree_manip_vector[i - 1];
             double cur_alpha = alpha_vector[i - 1];
             double cur_beta = beta_vector[i - 1];
             double cur_m10 = m10_vector[i - 1];
@@ -547,53 +591,70 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             updateErrorMatrix(cur_alpha, cur_beta);
             m10 = cur_m10;
 
-            std::cout << "initial tree before update m10: " << cur_tree_manip.makeNewick(3) << "\n";
+            if (verbose)
+                std::cout << "initial tree before update m10: " << cur_tree_manip.makeNewick(8) << "\n";
 
             rootage_vector.push_back(cur_rootage);
             alpha_vector.push_back(cur_alpha);
             beta_vector.push_back(cur_beta);
-            tree_manip_vector.push_back(cur_tree_manip);
+            TreeManip cur_tree_manip_copy;
+            cur_tree_manip_copy.buildFromNewick(cur_tree_manip.makeNewick(8), true, false);
+            cur_tree_manip_copy.addTToName();
+            tree_string_vector.push_back(cur_tree_manip_copy.makeNewick(8, true) + ";\n");
 
             double proposed_m10 = std::abs(getNormalDistribution(cur_m10, STD_DEV_M10));
-            std::cout << "cur_m10: " << cur_m10 << "\n";
-            std::cout << "proposed_m10: " << proposed_m10 << "\n";
-            // std::cout << "cur_tree_manip: " << cur_tree_manip.makeNewick(3) << std::endl;
+            if (verbose){
+                std::cout << "cur_m10: " << cur_m10 << "\n";
+                std::cout << "proposed_m10: " << proposed_m10 << "\n";
+            }
+            
+            // std::cout << "cur_tree_manip: " << cur_tree_manip.makeNewick(8) << std::endl;
 
             // proposed loglikelihood
             double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, cur_tree_manip, state_code_and_count_map, likelihood_table, leaves_likelihood, proposed_m10);
 
-            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
-            std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
+            if (verbose){
+                std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+                std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
+            }
 
             double dbeta_on_proposed_m10 = getUniformDistributionDensity(proposed_m10, 0, 1);
             double dbeta_on_cur_m10 = getUniformDistributionDensity(cur_m10, 0, 1);
             double m10_error_Prior_ratio = exp(log(dbeta_on_proposed_m10) - log(dbeta_on_cur_m10));
 
+            if (verbose){
+                std::cout << "dbeta_on_proposed_m10: " << dbeta_on_proposed_m10 << "\n";
+                std::cout << "dbeta_on_cur_m10: " << dbeta_on_cur_m10 << "\n";
+                std::cout << "m10_error_Prior_ratio: " << m10_error_Prior_ratio << "\n";
+            }
+
             double target_error_ratio = exp(proposed_loglikelihood - cur_loglikelihood) * m10_error_Prior_ratio;
-            target_error_ratio = adjustInfinity(target_error_ratio);
+            target_error_ratio = adjustInfinity(target_error_ratio);            
 
             double r_error_ratio = getUniformDistribution(0, 1);
             if (r_error_ratio < target_error_ratio)
             {
-                std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
-                std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
+                if (verbose){
+                    std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
+                    std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
+                }
                 m10_vector.push_back(proposed_m10);
                 loglikelihood_vector.push_back(proposed_loglikelihood);
             }
             else
             {
-                std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
-                std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
+                if (verbose){
+                    std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
+                    std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
+                }
                 m10_vector.push_back(cur_m10);
                 loglikelihood_vector.push_back(cur_loglikelihood);
             }
-            std::cout << "m10_vector.back(): " << m10_vector.back() << "\n";
         }
         else
         {
             std::cout << "update tree.\n";
 
-            TreeManip cur_tree_manip = tree_manip_vector[i - 1];
             double cur_alpha = alpha_vector[i - 1];
             double cur_beta = beta_vector[i - 1];
             double cur_m10 = m10_vector[i - 1];
@@ -602,7 +663,8 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             updateErrorMatrix(cur_alpha, cur_beta);
             m10 = cur_m10;
 
-            std::cout << "initial tree before update tree begin: " << cur_tree_manip.makeNewick(3) << "\n";
+            if (verbose)
+                std::cout << "initial tree before update tree begin: " << cur_tree_manip.makeNewick(8) << "\n";
 
             alpha_vector.push_back(cur_alpha);
             beta_vector.push_back(cur_beta);
@@ -615,24 +677,28 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             update_tree(random_sample, cur_tree_manip, proposed_tree_tm, proposed_rootage, topology_prior_ratio, time_prior_ratio,
                         rate_prior_ratio, topology_proposal_ratio, time_proposal_ratio, rate_proposal_ratio, delta_time);
 
-            std::cout << "cur_tree_manip: " << cur_tree_manip.makeNewick(3) << std::endl;
-            std::cout << "proposed_tree_tm: " << proposed_tree_tm.makeNewick(3) << std::endl;
-            std::cout << "alpha: " << error_matrix[0][1] << std::endl;
-            std::cout << "beta: " << error_matrix[1][0] << std::endl;
-            std::cout << "tree m10: " << m10 << std::endl;
+            if (verbose) {
+                std::cout << "cur_tree_manip: " << cur_tree_manip.makeNewick(8) << std::endl;
+                std::cout << "proposed_tree_tm: " << proposed_tree_tm.makeNewick(8) << std::endl;
+                std::cout << "alpha: " << error_matrix[0][1] << std::endl;
+                std::cout << "beta: " << error_matrix[1][0] << std::endl;
+                std::cout << "tree m10: " << m10 << std::endl;
+            }
 
             // proposed loglikelihood
             double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, proposed_tree_tm, state_code_and_count_map, likelihood_table, leaves_likelihood, m10);
 
-            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
-            std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
+            if (verbose) {
+                std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+                std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
 
-            std::cout << "topology_proposal_ratio: " << topology_proposal_ratio << "\n";
-            std::cout << "time_proposal_ratio: " << time_proposal_ratio << "\n";
-            std::cout << "rate_proposal_ratio: " << rate_proposal_ratio << "\n";
-            std::cout << "topology_prior_ratio: " << topology_prior_ratio << "\n";
-            std::cout << "time_prior_ratio: " << time_prior_ratio << "\n";
-            std::cout << "rate_prior_ratio: " << rate_prior_ratio << "\n";
+                std::cout << "topology_proposal_ratio: " << topology_proposal_ratio << "\n";
+                std::cout << "time_proposal_ratio: " << time_proposal_ratio << "\n";
+                std::cout << "rate_proposal_ratio: " << rate_proposal_ratio << "\n";
+                std::cout << "topology_prior_ratio: " << topology_prior_ratio << "\n";
+                std::cout << "time_prior_ratio: " << time_prior_ratio << "\n";
+                std::cout << "rate_prior_ratio: " << rate_prior_ratio << "\n";
+            }
 
             double target_error_ratio = exp(proposed_loglikelihood - cur_loglikelihood) *
                                         topology_proposal_ratio * time_proposal_ratio * rate_proposal_ratio * topology_prior_ratio * time_prior_ratio * rate_prior_ratio;
@@ -641,24 +707,39 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             double r_error_ratio = getUniformDistribution(0, 1);
             if (r_error_ratio < target_error_ratio)
             {
-                std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
-                std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
+                if (verbose) {
+                    std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
+                    std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
+                }
                 loglikelihood_vector.push_back(proposed_loglikelihood);
-                tree_manip_vector.push_back(proposed_tree_tm);
+                cur_tree_manip.clear();
+                cur_tree_manip.buildFromNewick(proposed_tree_tm.makeNewick(8), true, false);
+                cur_tree_manip.updateNodesHeightInfo();
+                cur_tree_manip.buildNodeNameAndNumberMap();
+
+                TreeManip proposed_tree_tm_copy;
+                proposed_tree_tm_copy.buildFromNewick(proposed_tree_tm.makeNewick(8), true, false);
+                proposed_tree_tm_copy.addTToName();
+                tree_string_vector.push_back(proposed_tree_tm_copy.makeNewick(8, true) + ";\n");
+
                 rootage_vector.push_back(proposed_rootage);
-                std::cout << "use new tree.\n";
             }
             else
             {
-                std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
-                std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
+                if (verbose) {
+                    std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
+                    std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
+                }
                 loglikelihood_vector.push_back(cur_loglikelihood);
-                tree_manip_vector.push_back(cur_tree_manip);
+
+                TreeManip cur_tree_manip_copy;
+                cur_tree_manip_copy.buildFromNewick(cur_tree_manip.makeNewick(8), true, false);
+                cur_tree_manip_copy.addTToName();
+                tree_string_vector.push_back(cur_tree_manip_copy.makeNewick(8, true) + ";\n");
+
                 rootage_vector.push_back(cur_rootage);
-                std::cout << "use old tree.\n";
             }
         }
-        std::cout << "rootage_vector.back() " << rootage_vector.back() << "\n";
     }
 }
 
@@ -674,7 +755,7 @@ int main(int argc, char *argv[])
     int opt, niter = 1000000;
     std::string output_filename, br_tree_string, tree_data_filename;
 
-    while ((opt = getopt(argc, argv, "n:o:t:a:b:c:d:f:m:s:")) != -1)
+    while ((opt = getopt(argc, argv, "n:o:t:a:b:c:d:f:m:s:v")) != -1)
     {
         switch (opt)
         {
@@ -718,6 +799,10 @@ int main(int argc, char *argv[])
             rootage_stddev = atof(optarg);
             std::cout << "rootage stddev: " << rootage_stddev << "\n";
             break;
+        case 'v':
+            verbose = true;
+            std::cout << "verbose on\n";
+            break;
         default:
             fprintf(stderr, "Wrong arguments!\n");
             exit(1);
@@ -728,7 +813,8 @@ int main(int argc, char *argv[])
 
     TreeManip br_tree;
     br_tree.buildFromNewick(br_tree_string, true, false);
-    std::cout << "br_tree: " << br_tree.makeNewick(3) << std::endl;
+    if (verbose)
+        std::cout << "br_tree: " << br_tree.makeNewick(8) << std::endl;
 
     std::vector<std::string> data_label;
     std::vector<std::vector<int>> tree_data_original;
@@ -754,7 +840,7 @@ int main(int argc, char *argv[])
     lambda_edge = 2 * log(1.2), lambda_root = 2 * log(1.2);
 
     std::vector<double> alpha_vector, beta_vector, m10_vector, rootage_vector, loglikelihood_vector;
-    std::vector<TreeManip> tree_manip_vector;
+    std::vector<std::string> tree_string_vector;
     alpha_vector.reserve(niter);
     alpha_vector.push_back(alpha);
     beta_vector.reserve(niter);
@@ -763,21 +849,21 @@ int main(int argc, char *argv[])
     m10_vector.push_back(m10);
     rootage_vector.reserve(niter);
     rootage_vector.push_back(rootage);
-    tree_manip_vector.reserve(niter);
+    tree_string_vector.reserve(niter);
 
     // Two values may need to generate from R
     //std::string br_tree_string = "(3:0.9125,(5:0.8466827877,(1:0.01848638469,(4:0.01632424983,2:0.01632424983):0.002162134862):0.828196403):0.06581721228);";
     // TreeManip br_tree;
     // br_tree.buildFromNewick(br_tree_string, true, false);
-    // std::cout << "br_tree: " << br_tree.makeNewick(3) << std::endl;
+    // std::cout << "br_tree: " << br_tree.makeNewick(8) << std::endl;
 
     //br_tree.scaleAllEdgeLengths(Tmax);
-    std::cout << "br_tree scaled: " << br_tree.makeNewick(3) << std::endl;
+    //std::cout << "br_tree scaled: " << br_tree.makeNewick(8) << std::endl;
     // find map between tip node name and node number
     br_tree.buildNodeNameAndNumberMap();
 
     // 4. Run iterations with many iterations and four differnet conditions
-    runTreeAndOrderSearchDP(tree_data_original, data_label, br_tree, niter, alpha_vector, beta_vector, m10_vector, rootage_vector, loglikelihood_vector, tree_manip_vector);
+    runTreeAndOrderSearchDP(tree_data_original, data_label, br_tree, niter, alpha_vector, beta_vector, m10_vector, rootage_vector, loglikelihood_vector, tree_string_vector);
 
     std::cout << "average of alpha_vector: " << getAverageOfVector(alpha_vector) << "\n";
     std::cout << "average of beta_vector: " << getAverageOfVector(beta_vector) << "\n";
@@ -787,7 +873,7 @@ int main(int argc, char *argv[])
     std::cout << "average of rootage_vector: " << getAverageOfVector(rootage_vector) << "\n";
 
     // 5. Output results to files
-    outputToCSVFile(output_filename, alpha_vector, beta_vector, m10_vector, rootage_vector, loglikelihood_vector, tree_manip_vector);
+    outputToCSVFile(output_filename, alpha_vector, beta_vector, m10_vector, rootage_vector, loglikelihood_vector, tree_string_vector);
 
     auto stop = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(stop - start);
