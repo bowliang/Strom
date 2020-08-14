@@ -31,6 +31,15 @@ namespace strom
         void setEdgeLength(double v);
         double getHeight() { return _height; }
 
+        void setP00(double p00) { _p00 = p00; }
+        void setP01(double p01) { _p01 = p01; }
+        void setP10(double p10) { _p10 = p10; }
+        void setP11(double p11) { _p11 = p11; }
+        double getP00() { return _p00; }
+        double getP01() { return _p01; }
+        double getP10() { return _p10; }
+        double getP11() { return _p11; }
+
         static const double _smallest_edge_length;
 
         typedef std::vector<Node> Vector;
@@ -47,6 +56,10 @@ namespace strom
         std::string _name;
         double _edge_length;
         double _height;
+        double _p00;
+        double _p01;
+        double _p10;
+        double _p11;
         bool _added_t;
         //Split               _split;
     };

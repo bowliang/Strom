@@ -46,6 +46,9 @@ namespace strom
         void randomLengthChange(double delta_time, double &time_proposal_ratio);
         void allInternalLengthChange(double delta_time, double &time_proposal_ratio);
 
+        void buildNodesPossibilitiesInfo(double m10, double m01);
+        Node::PtrVector getPreOrder() { return _tree.getPreOrder(); };
+
         void clear();
 
         int getNumLeaves() { return _tree.numLeaves(); };
@@ -53,11 +56,13 @@ namespace strom
         Node *getRootNode() { return _tree.getRoot(); };
         void updateNodesHeightInfo() { _tree.updateNodesHeightInfo(); };
         double getTreeMaxHeight() { return _tree.getTreeMaxHeight(); };
+        void updateSubstitutionMatrix(double br_len, double m10, double m01);
 
     private:
         Tree _tree;
         std::map<std::string, int> _node_name_and_number_map;
         double _lambda_edge = 2 * log(1.2);
+        double _substitution_matrix[2][2];
 
         Node *findNextPreorder(Node *nd);
         void refreshPreorder();

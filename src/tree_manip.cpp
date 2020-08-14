@@ -890,6 +890,31 @@ namespace strom
         }
     }
 
+    void TreeManip::updateSubstitutionMatrix(double br_len, double m10, double m01) 
+    {
+        // Note to change m01
+        double divisor = m01 + m10;
+        double exp_len = exp((-m01 - m10) * br_len);
+
+        _substitution_matrix[0][0] = (m10 + m01 * exp_len) / divisor;
+        _substitution_matrix[0][1] = (m01 - m01 * exp_len) / divisor;
+        _substitution_matrix[1][0] = (m10 - m10 * exp_len) / divisor;
+        _substitution_matrix[1][1] = (m01 + m10 * exp_len) / divisor;
+    }
+    
+    void TreeManip::buildNodesPossibilitiesInfo(double m10, double m01)
+    {
+        for (auto nd : _tree._preorder)
+        {
+            updateSubstitutionMatrix(nd->getEdgeLength(), m10, m01);
+
+            nd->setP00(_substitution_matrix[0][0]);
+            nd->setP01(_substitution_matrix[0][1]);
+            nd->setP10(_substitution_matrix[1][0]);
+            nd->setP11(_substitution_matrix[1][1]);
+        }
+    }
+
     void TreeManip::buildFromNewick(const std::string newick, bool rooted, bool allow_polytomies)
     {
         _tree.clear();

@@ -33,7 +33,8 @@ void mapObservedStateToRightLabel(TreeManip &start_tree_tm, std::vector<int> &ob
     }
 }
 
-void readObservedDataFromCSVFile(const int num_lines, const std::string tree_data_filename, std::vector<std::string> &data_label, std::vector<std::vector<int>> &tree_data)
+void readObservedDataFromCSVFile(const int num_lines, const std::string tree_data_filename, std::vector<std::string> &data_label, std::vector<std::vector<int>> &tree_data,
+                                 std::vector<std::vector<int>> &mutation_tree_data_original)
 {
     // read input tree file
     std::ifstream fin;
@@ -56,11 +57,11 @@ void readObservedDataFromCSVFile(const int num_lines, const std::string tree_dat
         data_label.push_back(label.substr(0, pos));
         label.erase(0, pos + delimiter.length());
     }
-    data_label.push_back(label);
+    // data_label.push_back(label);
 
     int line_i = 0;
     std::vector<int> line_data;
-    while (line_i < num_lines && getline(fin, line))
+    while (getline(fin, line))
     {
         // erase " from data
         line.erase(std::remove(line.begin(), line.end(), '"'), line.end());
@@ -72,8 +73,16 @@ void readObservedDataFromCSVFile(const int num_lines, const std::string tree_dat
             line.erase(0, pos + delimiter.length());
             line_data.push_back(num);
         }
-        line_data.push_back(line[0] - '0');
-        tree_data.push_back(line_data);
+        int label = line[0] - '0';
+        if (label == 0 && line_i < num_lines)
+        {
+            tree_data.push_back(line_data);
+        }
+        else if (label == 1)
+        {
+            mutation_tree_data_original.push_back(line_data);
+        }
+
         line_data.clear();
         line_i++;
     }
@@ -82,7 +91,7 @@ void readObservedDataFromCSVFile(const int num_lines, const std::string tree_dat
 }
 
 void outputToCSVFile(const std::string output_filename, std::vector<double> &alpha_vector, std::vector<double> &beta_vector, std::vector<double> &m10_vector,
-                            std::vector<double> &rootage_vector, std::vector<double> &loglikelihood_vector, std::vector<std::string> &tree_string_vector)
+                     std::vector<double> &rootage_vector, std::vector<double> &loglikelihood_vector, std::vector<std::string> &tree_string_vector)
 {
     std::ofstream myfile;
     myfile.open(output_filename + ".csv");
@@ -105,7 +114,6 @@ void outputToCSVFile(const std::string output_filename, std::vector<double> &alp
     }
     myfile.close();
 }
-
 
 double getAverageOfVector(std::vector<double> &vector, int ignore_first_n = 0)
 {
@@ -335,6 +343,7 @@ static void update_tree(int random_sample, TreeManip &cur_tree_tm, TreeManip &pr
         std::cout << "Total length change.\n";
         proposed_tree_tm.buildFromNewick(cur_tree_tm.makeNewick(8), true, false);
         proposed_tree_tm.totalLengthChange(proposed_rootage, rate_prior_ratio, rate_proposal_ratio, rootage_mean, rootage_stddev);
+        proposed_tree_tm.updateNodesHeightInfo();
         break;
     case 4:
         std::cout << "Random length change.\n";
@@ -358,13 +367,209 @@ static void update_tree(int random_sample, TreeManip &cur_tree_tm, TreeManip &pr
     std::cout << "proposed_rootage end " << proposed_rootage << "\n";
 }
 
-void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, std::vector<std::string> &data_label, TreeManip &start_tree_tm, int niter, std::vector<double> &alpha_vector, std::vector<double> &beta_vector,
+void assignOneToAllChildNodesAndSelf(Node *nd, std::vector<int> &state)
+{
+    state[nd->getNumber()] = 1;
+    Node *left_child = nd->getLeftChild();
+    if (left_child != NULL)
+    {
+        assignOneToAllChildNodesAndSelf(left_child, state);
+        assignOneToAllChildNodesAndSelf(left_child->getRightSib(), state);
+    }
+}
+
+void buildPossibilityMatrix(TreeManip &br_tree_tm, std::vector<std::vector<int>> &possibility_matrix)
+{
+    possibility_matrix.clear();
+    Node *root = br_tree_tm.getRootNode()->getLeftChild();
+    int num_nodes = br_tree_tm.getNumNodes() - 1;
+    for (auto nd : br_tree_tm.getPreOrder())
+    {
+        if (nd == root)
+        {
+            continue;
+        }
+
+        std::vector<int> state(num_nodes, 0);
+        assignOneToAllChildNodesAndSelf(nd, state);
+        possibility_matrix.push_back(state);
+    }
+}
+
+double getCorrespondingPossibilityFromState(Node *nd, int nd_state, int nd_parent_state)
+{
+    if (nd_parent_state == 0 && nd_state == 0)
+        return nd->getP00();
+    else if (nd_parent_state == 0 && nd_state == 1)
+        return nd->getP01();
+    else if (nd_parent_state == 1 && nd_state == 0)
+        return nd->getP10();
+    else if (nd_parent_state == 1 && nd_state == 1)
+        return nd->getP11();
+    std::cout<<"Error: should not reach here\n";
+    return 0.0;
+}
+
+void normalizeVector(std::vector<double> &value_vector)
+{
+    double total_value = 0.0;
+    for (auto &p : value_vector)
+        total_value += p;
+
+    for (auto &p : value_vector)
+        p /= total_value;
+    for (auto v : value_vector) {
+        if (isnan(v)) {
+            std::cout<<"Error: find NAN\n";
+            break;
+        }
+    }
+}
+
+void buildPossibilityValueVector(TreeManip &br_tree_tm, std::vector<std::vector<int>> &possibility_matrix, std::vector<double> &possibility_value_vector)
+{
+    int i = 0;
+    Node *root = br_tree_tm.getRootNode()->getLeftChild();
+    for (auto state : possibility_matrix)
+    {
+        double p = 1.0;
+        for (auto nd : br_tree_tm.getPreOrder())
+        {
+            if (nd == root)
+            {
+                continue;
+            }
+
+            p *= getCorrespondingPossibilityFromState(nd, state[nd->getNumber()], state[nd->getParent()->getNumber()]);
+        }
+        possibility_value_vector[i] = p;
+        i++;
+    }
+
+    normalizeVector(possibility_value_vector);
+}
+
+void computeErrorMatrixOnObservedDate(TreeManip &br_tree_tm, std::vector<std::vector<int>> &tree_data_original, std::vector<std::string> &data_label, std::vector<std::vector<double>> &leaves_likelihood,
+                                      std::vector<double> &possibility_value_vector, std::vector<std::vector<int>> &possibility_matrix, std::vector<std::vector<double>> &error_matrix_on_observed_data)
+{
+    int num_tips = br_tree_tm.getNumLeaves();
+    leaves_likelihood.resize(2); // 2 * num_tips
+    for (auto &it : leaves_likelihood)
+    {
+        it.resize(num_tips);
+    }
+
+    for (auto observed_state : tree_data_original)
+    {
+        std::vector<int> mapped_observed_state(observed_state);
+        mapObservedStateToRightLabel(br_tree_tm, observed_state, mapped_observed_state, data_label);
+
+        buildLeaveLikelihoodMatrix(mapped_observed_state, leaves_likelihood);
+
+        std::vector<double> error_vector(possibility_value_vector);
+        for (int i = 0; i < possibility_matrix.size(); i++)
+        {
+            auto state = possibility_matrix[i];
+
+            for (auto nd : br_tree_tm.getPreOrder())
+            {
+                if (nd->getLeftChild() == NULL)
+                {
+                    error_vector[i] *= leaves_likelihood[state[nd->getNumber()]][nd->getNumber()];
+                    //std::cout << "nd name: " << nd->getName() << ", error: "<< leaves_likelihood[state[nd->getNumber()]][nd->getNumber()] <<". ";
+                }
+            }
+        }
+        //std::cout << "\n";
+        error_matrix_on_observed_data.push_back(error_vector);
+    }
+}
+
+std::vector<double> computeMutationPossibilitiesForCurrentTree(TreeManip &start_tree_tm, std::vector<std::vector<int>> &mutation_tree_data, std::vector<std::string> &data_label, 
+    std::vector<int> &mutation_branch_vector, std::vector<std::vector<int>> &possibility_matrix, std::vector<double> &possibility_value_vector, std::vector<std::vector<double>> &leaves_likelihood)
+{
+    std::vector<double> loglikelihoods(2, 0.0);
+    // 0. compute normalized possibility
+    std::fill(possibility_value_vector.begin(), possibility_value_vector.end(), 1.0);
+    buildPossibilityValueVector(start_tree_tm, possibility_matrix, possibility_value_vector);
+
+    // 1. compute error on observed data
+    std::vector<std::vector<double>> error_matrix_on_observed_data;
+    computeErrorMatrixOnObservedDate(start_tree_tm, mutation_tree_data, data_label, leaves_likelihood, possibility_value_vector, possibility_matrix, error_matrix_on_observed_data);
+
+    // 2.save mutation branch on all observed data
+    int i = 0;
+    double mutation_loglikehood = 0.0, mutation_scaled_prior_loglikelihood = 0.0;
+
+    for (auto error_vector : error_matrix_on_observed_data)
+    {
+        mutation_loglikehood += log(error_vector[mutation_branch_vector[i]]);
+
+        // scale error_vector
+        normalizeVector(error_vector);
+        mutation_scaled_prior_loglikelihood += log(error_vector[mutation_branch_vector[i]]);
+
+        i++;
+    }
+    loglikelihoods[0] = mutation_loglikehood;
+    loglikelihoods[1] = mutation_scaled_prior_loglikelihood;
+    return loglikelihoods;
+}
+
+std::vector<double> computeMutationPossibilities(TreeManip &start_tree_tm, std::vector<int> &mutation_branch_vector, std::vector<std::vector<int>> &possibility_matrix, std::vector<double> &possibility_value_vector, 
+    std::vector<std::vector<int>> &mutation_tree_data, std::vector<std::string> &data_label, std::vector<std::vector<double>> &leaves_likelihood)
+{
+    //std::cout << "current error_matrix[0][1]: " << error_matrix[0][1] << "\n";
+    mutation_branch_vector.clear();
+
+    std::vector<double> loglikelihoods(2, 0.0);
+    // 1. build all possibility matrix for current tree
+    buildPossibilityMatrix(start_tree_tm, possibility_matrix);
+
+    // 2. compute normalized possibility
+    if (possibility_value_vector.empty())
+    {
+        possibility_value_vector.resize(possibility_matrix.size());
+    }
+    std::fill(possibility_value_vector.begin(), possibility_value_vector.end(), 1.0);
+    buildPossibilityValueVector(start_tree_tm, possibility_matrix, possibility_value_vector);
+
+    // 3. compute error on observed data
+    std::vector<std::vector<double>> error_matrix_on_observed_data;
+    computeErrorMatrixOnObservedDate(start_tree_tm, mutation_tree_data, data_label, leaves_likelihood, possibility_value_vector, possibility_matrix, error_matrix_on_observed_data);
+
+    // 4. do sampling and save mutation branch on all observed data
+    int num_nodes = start_tree_tm.getNumNodes() - 1, i = 0;
+    double mutation_loglikehood = 0.0, mutation_scaled_prior_loglikelihood = 0.0;
+
+    for (auto error_vector : error_matrix_on_observed_data)
+    {
+        //std::discrete_distribution<int> error_discrete_distribution(error_vector.begin(), error_vector.end());
+        //int random_sample = error_discrete_distribution(generator);
+        int random_sample = 0;
+        mutation_branch_vector.push_back(random_sample);
+        mutation_loglikehood += log(error_vector[mutation_branch_vector.back()]);
+
+        // scale error_vector
+        normalizeVector(error_vector);
+        mutation_scaled_prior_loglikelihood += log(error_vector[mutation_branch_vector.back()]);
+
+        i++;
+    }
+    loglikelihoods[0] = mutation_loglikehood;
+    loglikelihoods[1] = mutation_scaled_prior_loglikelihood;
+    return loglikelihoods;
+}
+
+void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, std::vector<std::vector<int>> &mutation_tree_data_original, std::vector<std::string> &data_label, TreeManip &start_tree_tm, int niter, std::vector<double> &alpha_vector, std::vector<double> &beta_vector,
                              std::vector<double> &m10_vector, std::vector<double> &rootage_vector, std::vector<double> &loglikelihood_vector, std::vector<std::string> &tree_string_vector)
 {
     // initialize all values
     int num_tips = start_tree_tm.getNumLeaves();
     start_tree_tm.updateNodesHeightInfo();
     int num_nodes = start_tree_tm.getNumNodes();
+    std::vector<double> possibility_value_vector;
+    std::vector<std::vector<int>> possibility_matrix;
 
     std::vector<std::vector<double>> leaves_likelihood, likelihood_table;
     leaves_likelihood.resize(2); // 2 * num_tips
@@ -387,12 +592,14 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
     double beta = beta_vector.front();
     updateErrorMatrix(alpha, beta);
     double m10 = m10_vector.front();
+    double m01 = 1.0;
 
     // run felsensteinBinaryDP for tree
     double total_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, start_tree_tm, state_code_and_count_map, likelihood_table, leaves_likelihood, m10);
     std::cout << "total_loglikelihood: " << total_loglikelihood << "\n";
 
     // initialize vectors for iterations
+    start_tree_tm.buildNodesPossibilitiesInfo(m10, m01);
     TreeManip start_tree_tm_copy, cur_tree_manip;
     start_tree_tm_copy.buildFromNewick(start_tree_tm.makeNewick(8), true, false);
     start_tree_tm_copy.updateNodesHeightInfo();
@@ -400,11 +607,21 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
     cur_tree_manip.buildFromNewick(start_tree_tm.makeNewick(8), true, false);
     cur_tree_manip.updateNodesHeightInfo();
     cur_tree_manip.buildNodeNameAndNumberMap();
+    cur_tree_manip.buildNodesPossibilitiesInfo(m10, m01);
     start_tree_tm_copy.addTToName();
     tree_string_vector.push_back(start_tree_tm_copy.makeNewick(8, true) + ";\n");
     loglikelihood_vector.reserve(niter);
     loglikelihood_vector.push_back(total_loglikelihood);
     double pi_error_alpha = 0.1, pi_error_beta = 0.2, pi_mutation_M10 = 0.3, delta_time = 0.2;
+
+    // run with mutation, compute initial branch possibilities
+    double cur_mutation_loglikehood = 0.0, cur_mutation_scaled_prior_loglikelihood = 0.0;
+    std::vector<int> cur_mutation_branch_vector;
+    std::vector<double> likelihoods = computeMutationPossibilities(start_tree_tm, cur_mutation_branch_vector, possibility_matrix, possibility_value_vector, mutation_tree_data_original, data_label, leaves_likelihood);
+    cur_mutation_loglikehood = likelihoods[0];
+    cur_mutation_scaled_prior_loglikelihood = likelihoods[1];
+    std::cout << "mutation_loglikehood: " << cur_mutation_loglikehood << "\n";
+    std::cout << "mutation_scaled_prior_loglikelihood: " << cur_mutation_scaled_prior_loglikelihood << "\n";
 
     // start component-wise update
     for (int i = 1; i < niter; i++)
@@ -448,9 +665,20 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             updateErrorMatrix(proposed_alpha, cur_beta);
             double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, cur_tree_manip, state_code_and_count_map, likelihood_table, leaves_likelihood, m10);
 
+            // proposed mutation loglikelihood
+            std::vector<double> likelihoods = computeMutationPossibilitiesForCurrentTree(cur_tree_manip, mutation_tree_data_original, data_label, cur_mutation_branch_vector, possibility_matrix, possibility_value_vector, leaves_likelihood);
+            double proposed_mutation_loglikelihood = likelihoods[0];
+            double proposed_mutation_scaled_prior_loglikelihood = likelihoods[1];
+            std::cout << "proposed_mutation_loglikelihood: " << proposed_mutation_loglikelihood << "\n";
+            std::cout << "proposed_mutation_scaled_prior_loglikelihood: " << proposed_mutation_scaled_prior_loglikelihood << "\n";
+            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+            std::cout << "cur_mutation_loglikelihood: " << cur_mutation_loglikehood << "\n";
+            std::cout << "cur_mutationscaled_prior_loglikelihood: " << cur_mutation_scaled_prior_loglikelihood << "\n";
+
             // std::cout<<"cur_alpha: "<< cur_alpha<<"\n";
             // std::cout<<"proposed_alpha: "<< proposed_alpha<<"\n";
-            if (verbose) {
+            if (verbose)
+            {
                 std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
                 std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
             }
@@ -462,23 +690,28 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             double dbeta_on_cur_alpha = getBetaDistributionDensity(cur_alpha, bd_alpha_alpha, bd_beta_alpha);
             double alpha_error_Prior_ratio = exp(log(dbeta_on_proposed_alpha) - log(dbeta_on_cur_alpha));
 
-            double target_error_ratio = exp(proposed_loglikelihood - cur_loglikelihood) * alpha_error_proposal_ratio * alpha_error_Prior_ratio;
+            double target_error_ratio = exp(proposed_loglikelihood + proposed_mutation_loglikelihood - cur_loglikelihood - cur_mutation_loglikehood 
+                + cur_mutation_scaled_prior_loglikelihood - proposed_mutation_scaled_prior_loglikelihood) * alpha_error_proposal_ratio * alpha_error_Prior_ratio;
             target_error_ratio = adjustInfinity(target_error_ratio);
 
             double r_error_ratio = getUniformDistribution(0, 1);
             if (r_error_ratio < target_error_ratio)
             {
-                if (verbose) {
+                if (verbose)
+                {
                     std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
                     std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
                 }
                 alpha_vector.push_back(proposed_alpha);
                 beta_vector.push_back(cur_beta);
                 loglikelihood_vector.push_back(proposed_loglikelihood);
+                cur_mutation_loglikehood = proposed_mutation_loglikelihood;
+                cur_mutation_scaled_prior_loglikelihood = proposed_mutation_scaled_prior_loglikelihood;
             }
             else
             {
-                if (verbose) {
+                if (verbose)
+                {
                     std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
                     std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
                 }
@@ -520,7 +753,8 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
                 proposed_beta = -proposed_beta;
             }
 
-            if (verbose) {
+            if (verbose)
+            {
                 std::cout << "cur_beta: " << cur_beta << "\n";
                 std::cout << "proposed_beta: " << proposed_beta << "\n";
             }
@@ -529,16 +763,28 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             updateErrorMatrix(cur_alpha, proposed_beta);
             double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, cur_tree_manip, state_code_and_count_map, likelihood_table, leaves_likelihood, m10);
 
-            if (verbose) {
+            // proposed mutation loglikelihood
+            std::vector<double> likelihoods = computeMutationPossibilitiesForCurrentTree(cur_tree_manip, mutation_tree_data_original, data_label, cur_mutation_branch_vector, possibility_matrix, possibility_value_vector, leaves_likelihood);
+            double proposed_mutation_loglikelihood = likelihoods[0];
+            double proposed_mutation_scaled_prior_loglikelihood = likelihoods[1];
+            std::cout << "proposed_mutation_loglikelihood: " << proposed_mutation_loglikelihood << "\n";
+            std::cout << "proposed_mutation_scaled_prior_loglikelihood: " << proposed_mutation_scaled_prior_loglikelihood << "\n";
+            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+            std::cout << "cur_mutation_loglikelihood: " << cur_mutation_loglikehood << "\n";
+            std::cout << "cur_mutationscaled_prior_loglikelihood: " << cur_mutation_scaled_prior_loglikelihood << "\n";
+
+            if (verbose)
+            {
                 std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
                 std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
-            }            
+            }
 
             double dnorm_on_cur_beta = getNormalDistributionDensity(cur_beta, proposed_beta, STD_DEV);
             double dnorm_on_proposed_beta = getNormalDistributionDensity(proposed_beta, cur_beta, STD_DEV);
             double beta_error_proposal_ratio = exp(log(dnorm_on_cur_beta) - log(dnorm_on_proposed_beta));
 
-            if (verbose){
+            if (verbose)
+            {
                 std::cout << "dnorm_on_cur_beta: " << dnorm_on_cur_beta << "\n";
                 std::cout << "dnorm_on_proposed_beta: " << dnorm_on_proposed_beta << "\n";
                 std::cout << "beta_error_proposal_ratio: " << beta_error_proposal_ratio << "\n";
@@ -548,29 +794,35 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             double dbeta_on_cur_beta = getBetaDistributionDensity(cur_beta, bd_alpha_beta, bd_beta_beta);
             double beta_error_Prior_ratio = exp(log(dbeta_on_proposed_beta) - log(dbeta_on_cur_beta));
 
-            if (verbose){
+            if (verbose)
+            {
                 std::cout << "dbeta_on_proposed_beta: " << dbeta_on_proposed_beta << "\n";
                 std::cout << "dbeta_on_cur_beta: " << dbeta_on_cur_beta << "\n";
                 std::cout << "beta_error_Prior_ratio: " << beta_error_Prior_ratio << "\n";
             }
-
-            double target_error_ratio = exp(proposed_loglikelihood - cur_loglikelihood) * beta_error_proposal_ratio * beta_error_Prior_ratio;
+            
+            double target_error_ratio = exp(proposed_loglikelihood + proposed_mutation_loglikelihood - cur_loglikelihood - cur_mutation_loglikehood 
+                + cur_mutation_scaled_prior_loglikelihood - proposed_mutation_scaled_prior_loglikelihood) * beta_error_proposal_ratio * beta_error_Prior_ratio;
             target_error_ratio = adjustInfinity(target_error_ratio);
 
             double r_error_ratio = getUniformDistribution(0, 1);
             if (r_error_ratio < target_error_ratio)
             {
-                if (verbose) {
+                if (verbose)
+                {
                     std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
                     std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
                 }
                 alpha_vector.push_back(cur_alpha);
                 beta_vector.push_back(proposed_beta);
                 loglikelihood_vector.push_back(proposed_loglikelihood);
+                cur_mutation_loglikehood = proposed_mutation_loglikelihood;
+                cur_mutation_scaled_prior_loglikelihood = proposed_mutation_scaled_prior_loglikelihood;
             }
             else
             {
-                if (verbose) {
+                if (verbose)
+                {
                     std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
                     std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
                 }
@@ -603,52 +855,72 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             tree_string_vector.push_back(cur_tree_manip_copy.makeNewick(8, true) + ";\n");
 
             double proposed_m10 = std::abs(getNormalDistribution(cur_m10, STD_DEV_M10));
-            if (verbose){
+            if (verbose)
+            {
                 std::cout << "cur_m10: " << cur_m10 << "\n";
                 std::cout << "proposed_m10: " << proposed_m10 << "\n";
             }
-            
+
             // std::cout << "cur_tree_manip: " << cur_tree_manip.makeNewick(8) << std::endl;
 
             // proposed loglikelihood
             double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, cur_tree_manip, state_code_and_count_map, likelihood_table, leaves_likelihood, proposed_m10);
 
-            if (verbose){
+            if (verbose)
+            {
                 std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
                 std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
             }
+
+            // proposed mutation loglikelihood
+            cur_tree_manip.buildNodesPossibilitiesInfo(proposed_m10, m01);
+            std::vector<double> likelihoods = computeMutationPossibilitiesForCurrentTree(cur_tree_manip, mutation_tree_data_original, data_label, cur_mutation_branch_vector, possibility_matrix, possibility_value_vector, leaves_likelihood);
+            double proposed_mutation_loglikelihood = likelihoods[0];
+            double proposed_mutation_scaled_prior_loglikelihood = likelihoods[1];
+            std::cout << "proposed_mutation_loglikelihood: " << proposed_mutation_loglikelihood << "\n";
+            std::cout << "proposed_mutation_scaled_prior_loglikelihood: " << proposed_mutation_scaled_prior_loglikelihood << "\n";
+            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+            std::cout << "cur_mutation_loglikelihood: " << cur_mutation_loglikehood << "\n";
+            std::cout << "cur_mutationscaled_prior_loglikelihood: " << cur_mutation_scaled_prior_loglikelihood << "\n";
 
             double dbeta_on_proposed_m10 = getUniformDistributionDensity(proposed_m10, 0, 1);
             double dbeta_on_cur_m10 = getUniformDistributionDensity(cur_m10, 0, 1);
             double m10_error_Prior_ratio = exp(log(dbeta_on_proposed_m10) - log(dbeta_on_cur_m10));
 
-            if (verbose){
+            if (verbose)
+            {
                 std::cout << "dbeta_on_proposed_m10: " << dbeta_on_proposed_m10 << "\n";
                 std::cout << "dbeta_on_cur_m10: " << dbeta_on_cur_m10 << "\n";
                 std::cout << "m10_error_Prior_ratio: " << m10_error_Prior_ratio << "\n";
             }
 
-            double target_error_ratio = exp(proposed_loglikelihood - cur_loglikelihood) * m10_error_Prior_ratio;
-            target_error_ratio = adjustInfinity(target_error_ratio);            
+            double target_error_ratio = exp(proposed_loglikelihood + proposed_mutation_loglikelihood - cur_loglikelihood - cur_mutation_loglikehood 
+                + cur_mutation_scaled_prior_loglikelihood - proposed_mutation_scaled_prior_loglikelihood) * m10_error_Prior_ratio;
+            target_error_ratio = adjustInfinity(target_error_ratio);
 
             double r_error_ratio = getUniformDistribution(0, 1);
             if (r_error_ratio < target_error_ratio)
             {
-                if (verbose){
+                if (verbose)
+                {
                     std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
                     std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
                 }
                 m10_vector.push_back(proposed_m10);
                 loglikelihood_vector.push_back(proposed_loglikelihood);
+                cur_mutation_loglikehood = proposed_mutation_loglikelihood;
+                cur_mutation_scaled_prior_loglikelihood = proposed_mutation_scaled_prior_loglikelihood;
             }
             else
             {
-                if (verbose){
+                if (verbose)
+                {
                     std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
                     std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
                 }
                 m10_vector.push_back(cur_m10);
                 loglikelihood_vector.push_back(cur_loglikelihood);
+                cur_tree_manip.buildNodesPossibilitiesInfo(cur_m10, m01);
             }
         }
         else
@@ -677,7 +949,8 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             update_tree(random_sample, cur_tree_manip, proposed_tree_tm, proposed_rootage, topology_prior_ratio, time_prior_ratio,
                         rate_prior_ratio, topology_proposal_ratio, time_proposal_ratio, rate_proposal_ratio, delta_time);
 
-            if (verbose) {
+            if (verbose)
+            {
                 std::cout << "cur_tree_manip: " << cur_tree_manip.makeNewick(8) << std::endl;
                 std::cout << "proposed_tree_tm: " << proposed_tree_tm.makeNewick(8) << std::endl;
                 std::cout << "alpha: " << error_matrix[0][1] << std::endl;
@@ -688,7 +961,8 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
             // proposed loglikelihood
             double proposed_loglikelihood = treeCompareFelsensteinDP(tree_data_original, data_label, proposed_tree_tm, state_code_and_count_map, likelihood_table, leaves_likelihood, m10);
 
-            if (verbose) {
+            if (verbose)
+            {
                 std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
                 std::cout << "proposed_loglikelihood: " << proposed_loglikelihood << "\n";
 
@@ -700,14 +974,26 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
                 std::cout << "rate_prior_ratio: " << rate_prior_ratio << "\n";
             }
 
-            double target_error_ratio = exp(proposed_loglikelihood - cur_loglikelihood) *
+            proposed_tree_tm.buildNodesPossibilitiesInfo(m10, m01);
+            std::vector<int> proposed_mutation_branch_vector;
+            std::vector<double> likelihoods = computeMutationPossibilities(proposed_tree_tm, proposed_mutation_branch_vector, possibility_matrix, possibility_value_vector, mutation_tree_data_original, data_label, leaves_likelihood);
+            double proposed_mutation_loglikelihood = likelihoods[0];
+            double proposed_mutation_scaled_prior_loglikelihood = likelihoods[1];
+            std::cout << "proposed_mutation_loglikelihood: " << proposed_mutation_loglikelihood << "\n";
+            std::cout << "proposed_mutation_scaled_prior_loglikelihood: " << proposed_mutation_scaled_prior_loglikelihood << "\n";
+            std::cout << "cur_loglikelihood: " << cur_loglikelihood << "\n";
+            std::cout << "cur_mutation_loglikelihood: " << cur_mutation_loglikehood << "\n";
+            std::cout << "cur_mutationscaled_prior_loglikelihood: " << cur_mutation_scaled_prior_loglikelihood << "\n";
+
+            double target_error_ratio = exp(proposed_loglikelihood + proposed_mutation_loglikelihood - cur_loglikelihood - cur_mutation_loglikehood + cur_mutation_scaled_prior_loglikelihood - proposed_mutation_scaled_prior_loglikelihood) *
                                         topology_proposal_ratio * time_proposal_ratio * rate_proposal_ratio * topology_prior_ratio * time_prior_ratio * rate_prior_ratio;
             target_error_ratio = adjustInfinity(target_error_ratio);
 
             double r_error_ratio = getUniformDistribution(0, 1);
             if (r_error_ratio < target_error_ratio)
             {
-                if (verbose) {
+                if (verbose)
+                {
                     std::cout << "accept r_error_ratio: " << r_error_ratio << "\n";
                     std::cout << "accept target_error_ratio: " << target_error_ratio << "\n";
                 }
@@ -716,6 +1002,7 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
                 cur_tree_manip.buildFromNewick(proposed_tree_tm.makeNewick(8), true, false);
                 cur_tree_manip.updateNodesHeightInfo();
                 cur_tree_manip.buildNodeNameAndNumberMap();
+                cur_tree_manip.buildNodesPossibilitiesInfo(m10, m01);
 
                 TreeManip proposed_tree_tm_copy;
                 proposed_tree_tm_copy.buildFromNewick(proposed_tree_tm.makeNewick(8), true, false);
@@ -723,10 +1010,14 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
                 tree_string_vector.push_back(proposed_tree_tm_copy.makeNewick(8, true) + ";\n");
 
                 rootage_vector.push_back(proposed_rootage);
+                cur_mutation_branch_vector = proposed_mutation_branch_vector;
+                cur_mutation_loglikehood = proposed_mutation_loglikelihood;
+                cur_mutation_scaled_prior_loglikelihood = proposed_mutation_scaled_prior_loglikelihood;
             }
             else
             {
-                if (verbose) {
+                if (verbose)
+                {
                     std::cout << "reject r_error_ratio: " << r_error_ratio << "\n";
                     std::cout << "reject target_error_ratio: " << target_error_ratio << "\n";
                 }
@@ -817,8 +1108,8 @@ int main(int argc, char *argv[])
         std::cout << "br_tree: " << br_tree.makeNewick(8) << std::endl;
 
     std::vector<std::string> data_label;
-    std::vector<std::vector<int>> tree_data_original;
-    readObservedDataFromCSVFile(5000, tree_data_filename, data_label, tree_data_original);
+    std::vector<std::vector<int>> tree_data_original, mutation_tree_data_original;
+    readObservedDataFromCSVFile(5000, tree_data_filename, data_label, tree_data_original, mutation_tree_data_original);
 
     for (auto l : data_label)
     {
@@ -828,14 +1119,20 @@ int main(int argc, char *argv[])
     {
         std::cout << "data: " << data << std::endl;
     }
+    for (auto data : mutation_tree_data_original[0])
+    {
+        std::cout << "mu data: " << data << std::endl;
+    }
+    std::cout << "tree_data_original: " << tree_data_original.size() << std::endl;
+    std::cout << "mutation_tree_data_original: " << mutation_tree_data_original.size() << std::endl;
 
     // 3. initialize value based on some distribution (normal, dirichlet)
     double alpha, beta, m01, m00, m10, m11, rootage;
     double lambda_edge, lambda_root;
-    alpha = getUniformDistribution(0, 0.45);
-    beta = getUniformDistribution(0, 0.45);
+    alpha = 0.1; //getUniformDistribution(0, 0.45);
+    beta = 0.1; //getUniformDistribution(0, 0.45);
     m01 = 1, m00 = -m01, rootage = 1.045;
-    m10 = getUniformDistribution(0, 1.0);
+    m10 = 0.1; //getUniformDistribution(0, 1.0);
     m11 = -m10;
     lambda_edge = 2 * log(1.2), lambda_root = 2 * log(1.2);
 
@@ -863,7 +1160,7 @@ int main(int argc, char *argv[])
     br_tree.buildNodeNameAndNumberMap();
 
     // 4. Run iterations with many iterations and four differnet conditions
-    runTreeAndOrderSearchDP(tree_data_original, data_label, br_tree, niter, alpha_vector, beta_vector, m10_vector, rootage_vector, loglikelihood_vector, tree_string_vector);
+    runTreeAndOrderSearchDP(tree_data_original, mutation_tree_data_original, data_label, br_tree, niter, alpha_vector, beta_vector, m10_vector, rootage_vector, loglikelihood_vector, tree_string_vector);
 
     std::cout << "average of alpha_vector: " << getAverageOfVector(alpha_vector) << "\n";
     std::cout << "average of beta_vector: " << getAverageOfVector(beta_vector) << "\n";
