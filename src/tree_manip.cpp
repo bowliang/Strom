@@ -82,7 +82,7 @@ namespace strom
             {
                 _node_name_and_number_map[nd->_name] = nd->_number;
                 // std::cout << "nd->_name " << nd->_name << ", nd->_number " << nd->_number << "\n";
-            } 
+            }
         }
     }
 
@@ -188,6 +188,8 @@ namespace strom
         const boost::format tip_node_name_format(boost::str(boost::format("%%s:%%.%df") % precision));
         const boost::format tip_node_number_format(boost::str(boost::format("%%d:%%.%df") % precision));
         const boost::format internal_node_format(boost::str(boost::format("):%%.%df") % precision));
+        const boost::format internal_node_name_format(boost::str(boost::format(")%%s:%%.%df") % precision));
+        const boost::format internal_node_name_end_format(boost::str(boost::format(")%%s")));
         std::stack<Node *> node_stack;
 
         Node *root_tip = (_tree._is_rooted ? 0 : _tree._root);
@@ -231,19 +233,40 @@ namespace strom
                         node_stack.pop();
                         if (node_stack.empty())
                         {
-                            newick += ")";
+                            if (use_names)
+                            {
+                                newick += boost::str(boost::format(internal_node_name_end_format) % popped->_name);
+                            }
+                            else
+                            {
+                                newick += ")";
+                            }
                             popped = 0;
                         }
                         else
                         {
-                            newick += boost::str(boost::format(internal_node_format) % popped->_edge_length);
+                            if (use_names)
+                            {
+                                newick += boost::str(boost::format(internal_node_name_format) % popped->_name % popped->_edge_length);
+                            }
+                            else
+                            {
+                                newick += boost::str(boost::format(internal_node_format) % popped->_edge_length);
+                            }
                             popped = node_stack.top();
                         }
                     }
                     if (popped && popped->_right_sib)
                     {
                         node_stack.pop();
-                        newick += boost::str(boost::format(internal_node_format) % popped->_edge_length);
+                        if (use_names)
+                        {
+                            newick += boost::str(boost::format(internal_node_name_format) % popped->_name % popped->_edge_length);
+                        }
+                        else
+                        {
+                            newick += boost::str(boost::format(internal_node_format) % popped->_edge_length);
+                        }
                         newick += ",";
                     }
                 }
@@ -849,6 +872,8 @@ namespace strom
         // get parent and child edge length
         double parent_edge_length = internal->_edge_length;
         double child_edge_length = internal->_left_child->_edge_length;
+        double node_height = internal->_height;
+        double max_height = _tree.getTreeMaxHeight();
         bool find_right_child = false;
         if (child_edge_length > internal->_left_child->_right_sib->_edge_length)
         {
@@ -856,10 +881,11 @@ namespace strom
             find_right_child = true;
         }
         double std_dev = std::min(parent_edge_length, child_edge_length) * delta_time / 2.0;
-        double proposed_edge_length = getNormalDistribution(parent_edge_length, std_dev);
-        internal->_edge_length = proposed_edge_length;
-        internal->_left_child->_edge_length = parent_edge_length + internal->_left_child->_edge_length - proposed_edge_length;
-        internal->_left_child->_right_sib->_edge_length = parent_edge_length + internal->_left_child->_right_sib->_edge_length - proposed_edge_length;
+        double proposed_node_height = max_height - getNormalDistribution(max_height - node_height, std_dev);
+        internal->_edge_length = parent_edge_length + proposed_node_height - node_height;
+        internal->_left_child->_edge_length = internal->_left_child->_edge_length - (proposed_node_height - node_height);
+        internal->_left_child->_right_sib->_edge_length = internal->_left_child->_right_sib->_edge_length - (proposed_node_height - node_height);
+        double proposed_edge_length = internal->_edge_length;
 
         double proposed_child_edge_length;
         if (find_right_child)
@@ -872,9 +898,9 @@ namespace strom
         }
         _tree.updateNodesHeightInfo();
 
-        double cur_on_proposed_normal_density = getNormalDistributionDensity(parent_edge_length, proposed_edge_length,
+        double cur_on_proposed_normal_density = getNormalDistributionDensity(node_height, proposed_node_height,
                                                                              std::min(proposed_edge_length, proposed_child_edge_length) * delta_time / 2.0);
-        double proposed_on_cur_normal_density = getNormalDistributionDensity(proposed_edge_length, parent_edge_length, std_dev);
+        double proposed_on_cur_normal_density = getNormalDistributionDensity(proposed_node_height, node_height, std_dev);
         time_proposal_ratio *= exp(log(cur_on_proposed_normal_density) - log(proposed_on_cur_normal_density));
     }
 
@@ -887,10 +913,15 @@ namespace strom
                 std::string cur_name = nd->getName();
                 nd->setName("t" + cur_name);
             }
+            else
+            {
+                std::string cur_name = std::to_string(nd->getNumber());
+                nd->setName("i" + cur_name);
+            }
         }
     }
 
-    void TreeManip::updateSubstitutionMatrix(double br_len, double m10, double m01) 
+    void TreeManip::updateSubstitutionMatrix(double br_len, double m10, double m01)
     {
         // Note to change m01
         double divisor = m01 + m10;
@@ -901,9 +932,11 @@ namespace strom
         _substitution_matrix[1][0] = (m10 - m10 * exp_len) / divisor;
         _substitution_matrix[1][1] = (m01 + m10 * exp_len) / divisor;
     }
-    
+
     void TreeManip::buildNodesPossibilitiesInfo(double m10, double m01)
     {
+        m10 = 0.0;
+        //m01 = 1.0;
         for (auto nd : _tree._preorder)
         {
             updateSubstitutionMatrix(nd->getEdgeLength(), m10, m01);
@@ -1201,5 +1234,31 @@ namespace strom
 
         // build tree
         buildFromNewick(newick, rooted, allow_polytomies);
+    }
+
+    std::default_random_engine TreeManip::tree_generator = std::default_random_engine();
+
+    double TreeManip::getNormalDistribution(double mean, double stddev)
+    {
+        std::normal_distribution<double> distribution(mean, stddev);
+        return distribution(tree_generator);
+    }
+
+    double TreeManip::getNormalDistributionDensity(double x, double mean, double stddev)
+    {
+        boost::math::normal nd(mean, stddev);
+        return boost::math::pdf(nd, x);
+    }
+
+    double TreeManip::getUniformDistribution(double min, double max)
+    {
+        std::uniform_real_distribution<double> distribution(min, max);
+        return distribution(tree_generator);
+    }
+
+    double TreeManip::getUniformDistributionDensity(double x, double min, double max)
+    {
+        boost::math::uniform_distribution<> ud(min, max);
+        return boost::math::pdf(ud, x);
     }
 } // namespace strom

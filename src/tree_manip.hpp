@@ -58,6 +58,12 @@ namespace strom
         double getTreeMaxHeight() { return _tree.getTreeMaxHeight(); };
         void updateSubstitutionMatrix(double br_len, double m10, double m01);
 
+        static double getNormalDistribution(double mean, double stddev);
+        static double getNormalDistributionDensity(double x, double mean, double stddev);
+        static double getUniformDistribution(double min, double max);
+        static double getUniformDistributionDensity(double x, double min, double max);
+        static std::default_random_engine tree_generator;
+
     private:
         Tree _tree;
         std::map<std::string, int> _node_name_and_number_map;
