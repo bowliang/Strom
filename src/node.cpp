@@ -20,6 +20,13 @@ namespace strom
         _name = "";
         _edge_length = _smallest_edge_length;
         _added_t = false;
+        _observed_state = 0;
+        _final_state = 0;
+        _state_0 = 0;
+        _state_1 = 1;
+        _l0 = 0.0;
+        _l1 = 0.0;
+        _computed_state = false;
     }
 
     void Node::setEdgeLength(double v)

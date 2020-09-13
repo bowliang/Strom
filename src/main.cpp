@@ -646,6 +646,200 @@ void save_mutation_branch(TreeManip &start_tree_tm_copy, std::vector<int> &mutat
     mutation_string_vector.push_back(mutation_string);
 }
 
+void setStateAndPossibilityForNode(Node *nd, double l0_0, double l0_1, double l1_0, double l1_1)
+{
+    if (l0_0 > l0_1)
+    {
+        nd->setState0(0);
+        nd->setL0(l0_0);
+    }
+    else 
+    {
+        nd->setState0(1);
+        nd->setL0(l0_1);
+    }
+
+    if (l1_0 > l1_1)
+    {
+        nd->setState1(0);
+        nd->setL1(l1_0);
+    }
+    else 
+    {
+        nd->setState1(1);
+        nd->setL1(l1_1);
+    }
+}
+
+void computeStateAndPossibilityForLeaf(Node *leaf, int observed_state, double observed_l0, double observed_l1)
+{
+    leaf->setObservedState(observed_state);
+
+    double l0_0 = leaf->getP00() * observed_l0;
+    double l0_1 = leaf->getP01() * observed_l1;
+    double l1_0 = leaf->getP10() * observed_l0;
+    double l1_1 = leaf->getP11() * observed_l1;
+    leaf->setComputed(true);
+
+    setStateAndPossibilityForNode(leaf, l0_0, l0_1, l1_0, l1_1);
+}
+
+void computeStateAndPossibilityForNode(Node *nd, Node *root)
+{
+    if (nd->isComputedState()) 
+    {
+        return;
+    }
+
+    // get its children
+    Node *left_child = nd->getLeftChild();
+    Node *right_child = nd->getRightChild();
+
+    if (!left_child->isComputedState())
+    {
+        computeStateAndPossibilityForNode(left_child, root);
+    }
+    if (!right_child->isComputedState())
+    {
+        computeStateAndPossibilityForNode(right_child, root);
+    }
+
+    // no need to compute root node
+    if (nd == root)
+    {
+        return;
+    }
+    
+    // compute based on parent and child
+    double l0_0 = nd->getP00() * left_child->getL0() * right_child->getL0();
+    double l0_1 = nd->getP01() * left_child->getL1() * right_child->getL1();
+    double l1_0 = nd->getP10() * left_child->getL0() * right_child->getL0();
+    double l1_1 = nd->getP11() * left_child->getL1() * right_child->getL1();
+    nd->setComputed(true);
+    
+    setStateAndPossibilityForNode(nd, l0_0, l0_1, l1_0, l1_1);
+}
+
+void computeMutationWithMaxPossibility(Node *nd)
+{
+    // get its children
+    Node *left_child = nd->getLeftChild();
+    Node *right_child = nd->getRightChild();
+    int final_state = nd->getFinalState();
+
+    // ends until root
+    if (left_child == NULL)
+    {
+        return;
+    }
+
+    // pass on decided final state
+    int left_final_state, right_final_state;
+    if (final_state == 0)
+    {
+        left_final_state = left_child->getState0();
+        right_final_state = right_child->getState0();
+    }
+    else
+    {
+        left_final_state = left_child->getState1();
+        right_final_state = right_child->getState1();
+    }
+
+    left_child->setFinalState(left_final_state);
+    right_child->setFinalState(right_final_state);
+    computeMutationWithMaxPossibility(left_child);
+    computeMutationWithMaxPossibility(right_child);
+}
+
+std::vector<double> buildAncestralReconstruction(TreeManip &start_tree_tm, std::vector<std::vector<int>> &mutation_tree_data, std::vector<std::string> &data_label, double error_matrix[ROWS][COLS])
+{
+    int num_tips = start_tree_tm.getNumLeaves();
+    start_tree_tm.updateNodesHeightInfo();
+    int num_nodes = start_tree_tm.getNumNodes();
+    std::vector<double> loglikelihoods(2, 0.0);
+    std::vector<std::vector<double>> leaves_likelihood;
+    leaves_likelihood.resize(2); // 2 * num_tips
+    for (auto &it : leaves_likelihood)
+    {
+        it.resize(num_tips);
+    }
+
+    double mutation_loglikehood = 0.0, mutation_scaled_prior_loglikelihood = 0.0;
+    for (auto observed_state : mutation_tree_data)
+    {
+        // 1. get mapped observed state at leaf
+        std::vector<int> mapped_observed_state(observed_state);
+        mapObservedStateToRightLabel(start_tree_tm, observed_state, mapped_observed_state, data_label);
+
+        // 2. get state and possibility at leaf
+        for (auto nd : start_tree_tm.getPreOrder())
+        {
+            if (nd->getLeftChild() == NULL)
+            {
+                int observed_state = mapped_observed_state[nd->getNumber()];
+                computeStateAndPossibilityForLeaf(nd, observed_state, error_matrix[0][observed_state], error_matrix[1][observed_state]);
+            }
+        }     
+
+        // 3. get state and possibility at other nodes
+        Node *root = start_tree_tm.getRootNode()->getLeftChild();
+        computeStateAndPossibilityForNode(root, root);
+
+        // 4. build mutation with max possibility
+        root->setFinalState(0);
+        computeMutationWithMaxPossibility(root); 
+
+        for (auto nd : start_tree_tm.getPreOrder())
+        {
+            std::cout << "nd num: "<< nd->getNumber() << ", l0 "<< nd->getL0() << ", l1 "<< nd->getL1() << "\n";
+            std::cout << "nd final state: "<< nd->getFinalState() << "\n";
+        }
+
+        // 5. compute likelihood
+        std::vector<int> final_state(num_nodes - 1);
+        for (auto nd : start_tree_tm.getPreOrder())
+        {
+            if (nd != root)
+            {
+                final_state[nd->getNumber()] = nd->getFinalState();
+            }
+        }
+        for (auto s : final_state)
+        {
+            std::cout << s << ", ";
+        }
+        std::cout << "final_state \n";
+
+        double p = 1.0;
+        for (auto nd : start_tree_tm.getPreOrder())
+        {
+            if (nd == root)
+            {
+                continue;
+            }
+            p *= getCorrespondingPossibilityFromState(nd, final_state[nd->getNumber()], final_state[nd->getParent()->getNumber()]);
+        }
+
+        buildLeaveLikelihoodMatrix(mapped_observed_state, leaves_likelihood, error_matrix);
+        for (auto nd : start_tree_tm.getPreOrder())
+        {
+            if (nd->getLeftChild() == NULL)
+            {
+                p *= leaves_likelihood[final_state[nd->getNumber()]][nd->getNumber()];
+            }
+        }
+
+        mutation_loglikehood += log(p);
+        mutation_scaled_prior_loglikelihood += log(p);
+    }
+    loglikelihoods[0] = mutation_loglikehood;
+    loglikelihoods[1] = mutation_scaled_prior_loglikelihood;
+    std::cout << "loglikelihoods[0]: "<< loglikelihoods[0] << "\n";
+    std::cout << "loglikelihoods[1]: "<< loglikelihoods[1] << "\n";
+    return loglikelihoods;
+}
+
 void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, std::vector<std::vector<int>> &mutation_tree_data_original, std::vector<std::string> &data_label, TreeManip &start_tree_tm, int niter, std::vector<double> &alpha_vector, std::vector<double> &beta_vector,
                              std::vector<double> &m10_vector, std::vector<double> &rootage_vector, std::vector<double> &loglikelihood_vector, std::vector<std::string> &tree_string_vector, std::vector<std::string> &mutation_string_vector)
 {
@@ -708,6 +902,8 @@ void runTreeAndOrderSearchDP(std::vector<std::vector<int>> &tree_data_original, 
         std::cout << "mutation_loglikehood: " << cur_mutation_loglikehood << "\n";
         std::cout << "mutation_scaled_prior_loglikelihood: " << cur_mutation_scaled_prior_loglikelihood << "\n";
     }
+
+    //buildAncestralReconstruction(start_tree_tm, mutation_tree_data_original, data_label, error_matrix);
 
     start_tree_tm_copy.buildFromNewick(start_tree_tm.makeNewick(8), true, false);
     start_tree_tm_copy.updateNodesHeightInfo();

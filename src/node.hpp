@@ -40,6 +40,21 @@ namespace strom
         double getP10() { return _p10; }
         double getP11() { return _p11; }
 
+        bool isComputedState() { return _computed_state; }
+        void setComputed(bool is_computed) { _computed_state = is_computed; }
+        double getL0() { return _l0; }
+        double getL1() { return _l1; }
+        void setL0(double l0) { _l0 = l0; }
+        void setL1(double l1) { _l1 = l1; }
+        void setState0(int state_0) { _state_0 = state_0;}
+        void setState1(int state_1) { _state_1 = state_1;}
+        int getState0() { return _state_0;}
+        int getState1() { return _state_1;}
+        void setObservedState(int observed_state) { _observed_state = observed_state;}
+        int getObservedState() { return _observed_state;}
+        void setFinalState(int final_state) { _final_state = final_state;}
+        int getFinalState() { return _final_state;}
+
         static const double _smallest_edge_length;
 
         typedef std::vector<Node> Vector;
@@ -61,6 +76,13 @@ namespace strom
         double _p10;
         double _p11;
         bool _added_t;
+        int _observed_state;
+        int _final_state;
+        int _state_0;
+        int _state_1;
+        double _l0;
+        double _l1;
+        bool _computed_state;
         //Split               _split;
     };
 
